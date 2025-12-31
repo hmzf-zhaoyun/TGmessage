@@ -6,10 +6,13 @@ TGmessage 摸鱼工具 - 简洁版
 import asyncio
 import sys
 import shlex
+import json
+from pathlib import Path
 from contextlib import asynccontextmanager
 from datetime import datetime
 
 from TGmessage import TelegramUnreadMessageAPI
+from TGmessage.utils import find_dialog
 
 
 class FishingTool:
@@ -17,6 +20,10 @@ class FishingTool:
     
     def __init__(self):
         self.api = None
+        self.favorites_path = Path(__file__).resolve().parent / ".tgmessage_favorites.json"
+        self.favorites = []
+        self.current_dialog = None
+        self._load_favorites()
 
     @asynccontextmanager
     async def _get_api(self):
@@ -25,6 +32,219 @@ class FishingTool:
             return
         async with TelegramUnreadMessageAPI() as api:
             yield api
+
+    def _load_favorites(self):
+        if not self.favorites_path.exists():
+            self.favorites = []
+            return
+        try:
+            data = json.loads(self.favorites_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            raise ValueError(f"收藏文件解析失败: {e}")
+        if not isinstance(data, list):
+            raise ValueError("收藏文件格式错误: 需要列表")
+
+        favorites = []
+        for item in data:
+            if not isinstance(item, dict):
+                raise ValueError("收藏文件格式错误: 列表元素必须为对象")
+            dialog_id = item.get("dialog_id")
+            name = item.get("name")
+            username = item.get("username")
+            if not isinstance(dialog_id, int):
+                raise ValueError("收藏文件格式错误: dialog_id 必须为整数")
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("收藏文件格式错误: name 必须为非空字符串")
+            if username is not None and not isinstance(username, str):
+                raise ValueError("收藏文件格式错误: username 必须为字符串或 null")
+            favorites.append({
+                "dialog_id": dialog_id,
+                "name": name,
+                "username": username
+            })
+
+        self.favorites = favorites
+
+    def _save_favorites(self):
+        data = json.dumps(self.favorites, ensure_ascii=False, indent=2)
+        self.favorites_path.write_text(data, encoding="utf-8")
+
+    def _favorite_index_by_id(self, dialog_id: int):
+        for i, fav in enumerate(self.favorites):
+            if fav.get("dialog_id") == dialog_id:
+                return i
+        return None
+
+    def _find_favorite_indices(self, identifier: str):
+        identifier_str = identifier.strip()
+        if identifier_str.startswith("@"):
+            identifier_str = identifier_str[1:]
+        identifier_str = identifier_str.lower()
+
+        matches = []
+        for i, fav in enumerate(self.favorites):
+            if str(fav.get("dialog_id")) == identifier_str:
+                matches.append(i)
+                continue
+            name = fav.get("name")
+            if name and name.lower() == identifier_str:
+                matches.append(i)
+                continue
+            username = fav.get("username")
+            if username and username.lower() == identifier_str:
+                matches.append(i)
+        return matches
+
+    def _format_dialog_info(self, dialog_info: dict) -> str:
+        username = dialog_info.get("username")
+        username_part = f" (@{username})" if username else ""
+        return f"{dialog_info['name']}{username_part} [ID: {dialog_info['dialog_id']}]"
+
+    def _print_send_usage(self, has_current: bool):
+        if has_current:
+            print("  用法: send <消息内容>  或  send <对话名称> <消息内容>")
+            print("  示例: send 你好")
+        else:
+            print("  用法: send <对话名称> <消息内容>")
+        print("  示例: send \"群组 名称\" 消息内容")
+        print("        send 群组 名称 -- 消息内容")
+
+    async def _resolve_dialog_info(self, identifier):
+        if self.api is None:
+            raise RuntimeError("API 未初始化")
+        dialog = await find_dialog(self.api.client_wrapper.client, identifier)
+        if dialog is None:
+            raise ValueError(f"找不到对话: {identifier}")
+        entity = dialog.entity
+        username = getattr(entity, "username", None)
+        return {
+            "dialog_id": dialog.id,
+            "name": dialog.name,
+            "username": username
+        }
+
+    def list_stars(self):
+        if not self.favorites:
+            print("\n  暂无收藏对话\n")
+            return
+        print("\n  ⭐ 收藏对话:")
+        current_id = self.current_dialog["dialog_id"] if self.current_dialog else None
+        for i, fav in enumerate(self.favorites, 1):
+            mark = "★" if current_id == fav.get("dialog_id") else " "
+            print(f"  {i}. {mark} {self._format_dialog_info(fav)}")
+        print()
+
+    async def add_star(self, args):
+        if not args:
+            if not self.current_dialog:
+                print("  用法: star <对话名称/用户名/ID>  (或先 use 进入对话)")
+                return
+            dialog_info = dict(self.current_dialog)
+        else:
+            identifier = " ".join(args)
+            try:
+                dialog_info = await self._resolve_dialog_info(identifier)
+            except ValueError as e:
+                print(f"  ❌ {e}")
+                return
+
+        index = self._favorite_index_by_id(dialog_info["dialog_id"])
+        if index is None:
+            self.favorites.append(dialog_info)
+            self._save_favorites()
+            print(f"  ✅ 已收藏: {self._format_dialog_info(dialog_info)}")
+        else:
+            self.favorites[index] = dialog_info
+            self._save_favorites()
+            print(f"  ✅ 收藏已更新: {self._format_dialog_info(dialog_info)}")
+
+    async def remove_star(self, args):
+        if not args:
+            if not self.current_dialog:
+                print("  用法: unstar <序号|对话名称/用户名/ID>  (或先 use 进入对话)")
+                return
+            target_id = self.current_dialog["dialog_id"]
+            index = self._favorite_index_by_id(target_id)
+            if index is None:
+                print("  ❌ 当前对话不在收藏中")
+                return
+            removed = self.favorites.pop(index)
+            self._save_favorites()
+            print(f"  ✅ 已取消收藏: {self._format_dialog_info(removed)}")
+            return
+
+        index = None
+        if len(args) == 1 and args[0].isdigit():
+            idx = int(args[0])
+            if 1 <= idx <= len(self.favorites):
+                index = idx - 1
+            else:
+                print("  ❌ 序号超出范围")
+                return
+        else:
+            identifier = " ".join(args)
+            matches = self._find_favorite_indices(identifier)
+            if len(matches) == 1:
+                index = matches[0]
+            elif len(matches) > 1:
+                print("  ❌ 匹配到多个收藏,请使用序号")
+                return
+            else:
+                try:
+                    dialog_info = await self._resolve_dialog_info(identifier)
+                except ValueError as e:
+                    print(f"  ❌ {e}")
+                    return
+                index = self._favorite_index_by_id(dialog_info["dialog_id"])
+                if index is None:
+                    print("  ❌ 未找到对应的收藏")
+                    return
+
+        removed = self.favorites.pop(index)
+        self._save_favorites()
+        print(f"  ✅ 已取消收藏: {self._format_dialog_info(removed)}")
+
+    async def use_dialog(self, args):
+        if not args:
+            print("  用法: use <序号|对话名称/用户名/ID>")
+            return
+
+        dialog_info = None
+        if len(args) == 1 and args[0].isdigit():
+            idx = int(args[0])
+            if 1 <= idx <= len(self.favorites):
+                identifier = self.favorites[idx - 1]["dialog_id"]
+                try:
+                    dialog_info = await self._resolve_dialog_info(identifier)
+                except ValueError as e:
+                    print(f"  ❌ {e}")
+                    return
+            else:
+                print("  ❌ 序号超出范围")
+                return
+
+        if dialog_info is None:
+            identifier = " ".join(args)
+            try:
+                dialog_info = await self._resolve_dialog_info(identifier)
+            except ValueError as e:
+                print(f"  ❌ {e}")
+                return
+
+        self.current_dialog = dialog_info
+        index = self._favorite_index_by_id(dialog_info["dialog_id"])
+        if index is not None:
+            self.favorites[index] = dialog_info
+            self._save_favorites()
+        print(f"  ✅ 已进入对话: {self._format_dialog_info(dialog_info)}")
+
+    def leave_dialog(self):
+        if not self.current_dialog:
+            print("  当前未进入任何对话")
+            return
+        dialog_info = self.current_dialog
+        self.current_dialog = None
+        print(f"  ✅ 已退出对话: {self._format_dialog_info(dialog_info)}")
     
     def print_line(self, char="-", width=70):
         """打印分隔线"""
@@ -122,14 +342,15 @@ class FishingTool:
             
             print(f"\n  显示了 {msg_count} 条消息\n")
     
-    async def chat_view(self, dialog_name: str):
+    async def chat_view(self, dialog_identifier, dialog_label: str = None):
         """查看特定对话"""
         async with self._get_api() as api:
-            self.print_title(f"💬 {dialog_name}")
+            title = dialog_label or str(dialog_identifier)
+            self.print_title(f"💬 {title}")
             
             try:
                 messages = await api.get_unread_messages(
-                    dialog=dialog_name,
+                    dialog=dialog_identifier,
                     limit=api.config.max_unread_fetch
                 )
                 
@@ -150,7 +371,7 @@ class FishingTool:
 
                 max_message_id = max(msg.message_id for msg in messages)
                 await api.mark_dialog_read(
-                    dialog=dialog_name,
+                    dialog=dialog_identifier,
                     max_message_id=max_message_id
                 )
                 
@@ -159,12 +380,13 @@ class FishingTool:
             except ValueError as e:
                 print(f"\n  ❌ 错误: {e}\n")
     
-    async def send_quick_message(self, dialog: str, text: str):
+    async def send_quick_message(self, dialog, text: str, dialog_label: str = None):
         """快速发送消息"""
         async with self._get_api() as api:
             try:
                 msg_id = await api.send_message(dialog=dialog, text=text)
-                print(f"\n  ✅ 消息已发送给 {dialog} (ID: {msg_id})\n")
+                target = dialog_label or str(dialog)
+                print(f"\n  ✅ 消息已发送给 {target} (ID: {msg_id})\n")
             except Exception as e:
                 print(f"\n  ❌ 发送失败: {e}\n")
     
@@ -208,18 +430,39 @@ class FishingTool:
                     elif action in ['l', 'list']:
                         limit = int(args[0]) if args and args[0].isdigit() else 10
                         await self.detailed_view(limit)
+
+                    elif action == 'stars':
+                        self.list_stars()
+
+                    elif action == 'star':
+                        await self.add_star(args)
+
+                    elif action == 'unstar':
+                        await self.remove_star(args)
+
+                    elif action == 'use':
+                        await self.use_dialog(args)
+
+                    elif action == 'back':
+                        self.leave_dialog()
                     
                     elif action in ['c', 'chat']:
                         if args:
                             await self.chat_view(" ".join(args))
+                        elif self.current_dialog:
+                            await self.chat_view(
+                                self.current_dialog["dialog_id"],
+                                dialog_label=self.current_dialog["name"]
+                            )
                         else:
-                            print("  用法: chat <对话名称>")
+                            print("  用法: chat <对话名称>  (或先 use 进入对话)")
                     
                     elif action in ['m', 'send']:
-                        if args:
-                            dialog = None
-                            text = None
+                        dialog = None
+                        dialog_label = None
+                        text = None
 
+                        if args:
                             if '--' in args:
                                 sep_index = args.index('--')
                                 dialog_tokens = args[:sep_index]
@@ -227,21 +470,24 @@ class FishingTool:
                                 if dialog_tokens and text_tokens:
                                     dialog = " ".join(dialog_tokens)
                                     text = " ".join(text_tokens)
-
-                            if dialog is None and len(args) >= 2:
+                            elif len(args) >= 2:
                                 dialog = args[0]
                                 text = " ".join(args[1:])
-
-                            if dialog and text:
-                                await self.send_quick_message(dialog, text)
-                            else:
-                                print("  用法: send <对话名称> <消息内容>")
-                                print("  示例: send \"群组 名称\" 消息内容")
-                                print("        send 群组 名称 -- 消息内容")
+                            elif len(args) == 1 and self.current_dialog:
+                                dialog = self.current_dialog["dialog_id"]
+                                dialog_label = self.current_dialog["name"]
+                                text = args[0]
+                        elif self.current_dialog:
+                            self._print_send_usage(True)
+                            continue
                         else:
-                            print("  用法: send <对话名称> <消息内容>")
-                            print("  示例: send \"群组 名称\" 消息内容")
-                            print("        send 群组 名称 -- 消息内容")
+                            self._print_send_usage(False)
+                            continue
+
+                        if dialog and text:
+                            await self.send_quick_message(dialog, text, dialog_label=dialog_label)
+                        else:
+                            self._print_send_usage(self.current_dialog is not None)
                     
                     else:
                         print(f"  ❌ 未知命令: {action}")
@@ -261,9 +507,15 @@ class FishingTool:
         print("\n  📖 命令列表:")
         print("     s, summary      - 查看摘要")
         print("     l, list [数量]  - 查看消息列表 (默认10条)")
-        print("     c, chat <名称>  - 查看特定对话")
-        print("     m, send <对话> <消息> - 发送消息")
-        print("     示例: send \"群组 名称\" 消息内容  或  send 群组 名称 -- 消息内容")
+        print("     c, chat [名称]  - 查看特定对话 (进入对话后可省略)")
+        print("     m, send [对话] <消息> - 发送消息 (进入对话后可省略)")
+        print("     stars           - 查看收藏对话")
+        print("     star <对话|序号> - 收藏对话 (可省略使用当前对话)")
+        print("     unstar <对话|序号> - 取消收藏 (可省略使用当前对话)")
+        print("     use <对话|序号>  - 进入对话")
+        print("     back            - 退出当前对话")
+        print("     示例: send 你好")
+        print("           send \"群组 名称\" 消息内容  或  send 群组 名称 -- 消息内容")
         print("     h, help         - 显示帮助")
         print("     q, quit         - 退出")
         print()
