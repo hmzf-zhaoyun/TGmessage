@@ -419,16 +419,23 @@ class FishingTool:
                 target = dialog_label or str(dialog)
                 print(f"\n  ✅ 消息已发送给 {target} (ID: {msg_id})")
 
-                # 如果有遗漏的消息,显示提示
+                # 如果有遗漏的消息,完整显示所有内容
                 if missed_messages:
-                    print(f"  📬 检测到 {len(missed_messages)} 条中间消息:")
-                    for msg in missed_messages[:3]:  # 最多显示3条
-                        time_str = msg.date.strftime("%H:%M")
-                        preview = msg.content[:30].replace('\n', ' ') if msg.content else '[无文本]'
-                        print(f"     • [{time_str}] {msg.sender_name}: {preview}...")
-                    if len(missed_messages) > 3:
-                        print(f"     • ... 还有 {len(missed_messages) - 3} 条消息")
-                    print(f"  💡 使用 'chat' 命令查看完整对话")
+                    print(f"\n  📬 检测到 {len(missed_messages)} 条中间消息:")
+                    self.print_line("-", 70)
+
+                    for msg in missed_messages:
+                        time_str = msg.date.strftime("%m-%d %H:%M")
+                        print(f"\n[{time_str}] {msg.sender_name}:")
+
+                        if msg.content:
+                            for line in msg.content.split('\n'):
+                                print(f"  {line}")
+
+                        if msg.has_media:
+                            print(f"  📎 [{msg.media_type}]")
+
+                    self.print_line("-", 70)
 
                 print()
 
