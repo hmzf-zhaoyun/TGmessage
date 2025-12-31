@@ -14,6 +14,7 @@ from telethon.tl.types import (
 from .client import TelegramClientWrapper
 from .models import UnreadMessage, DialogInfo
 from .utils import handle_flood_wait, get_media_type, find_dialog
+from .message_tracker import MessageTracker
 
 
 logger = logging.getLogger(__name__)
@@ -21,16 +22,19 @@ logger = logging.getLogger(__name__)
 
 class MessageFetcher:
     """未读消息获取器"""
-    
-    def __init__(self, client_wrapper: TelegramClientWrapper):
+
+    def __init__(self, client_wrapper: TelegramClientWrapper, enable_tracking: bool = True):
         """
         初始化消息获取器
-        
+
         Args:
             client_wrapper: Telegram 客户端封装实例
+            enable_tracking: 是否启用消息追踪(防止消息遗漏)
         """
         self.client_wrapper = client_wrapper
-    
+        self.enable_tracking = enable_tracking
+        self.tracker = MessageTracker() if enable_tracking else None
+
     @property
     def client(self):
         """获取 Telegram 客户端"""
@@ -141,10 +145,16 @@ class MessageFetcher:
             
             # 反转列表,使消息按时间从旧到新排列
             unread_messages.reverse()
-            
+
+            # 更新消息追踪状态
+            if self.enable_tracking and unread_messages and self.tracker:
+                max_msg_id = max(msg.message_id for msg in unread_messages)
+                self.tracker.update_last_read_message_id(dialog.id, max_msg_id)
+                logger.debug(f"已更新对话 {dialog.id} 的最后已读消息ID: {max_msg_id}")
+
             logger.info(f"成功获取 {len(unread_messages)} 条未读消息")
             return unread_messages
-            
+
         except errors.RPCError as e:
             logger.error(f"获取未读消息失败: {e}")
             raise
@@ -230,7 +240,7 @@ class MessageFetcher:
         根据标识符查找对话
 
         Args:
-            identifier: 对话 ID、用户名或名称
+            identifier: 对话ID, 用户名或名称
 
         Returns:
             Dialog 对象或 None

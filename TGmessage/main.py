@@ -20,17 +20,18 @@ logger = logging.getLogger(__name__)
 class TelegramUnreadMessageAPI:
     """Telegram 未读消息 API 封装"""
 
-    def __init__(self, config: Optional[Config] = None):
+    def __init__(self, config: Optional[Config] = None, enable_message_tracking: bool = True):
         """
         初始化 API
 
         Args:
             config: 配置对象,默认使用环境变量配置
+            enable_message_tracking: 是否启用消息追踪(防止消息遗漏),默认启用
         """
         self.config = config or get_config()
         self.client_wrapper = TelegramClientWrapper(self.config)
-        self.message_fetcher = MessageFetcher(self.client_wrapper)
-        self.message_sender = MessageSender(self.client_wrapper)
+        self.message_fetcher = MessageFetcher(self.client_wrapper, enable_tracking=enable_message_tracking)
+        self.message_sender = MessageSender(self.client_wrapper, enable_tracking=enable_message_tracking)
     
     async def connect(
         self,

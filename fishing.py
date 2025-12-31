@@ -381,12 +381,57 @@ class FishingTool:
                 print(f"\n  ❌ 错误: {e}\n")
     
     async def send_quick_message(self, dialog, text: str, dialog_label: str = None):
-        """快速发送消息"""
+        """快速发送消息(带消息遗漏补偿)"""
         async with self._get_api() as api:
             try:
+                # 获取对话ID(用于消息追踪)
+                dialog_id = None
+                if isinstance(dialog, int):
+                    dialog_id = dialog
+                else:
+                    # 需要先解析对话以获取ID
+                    from TGmessage.utils import find_dialog
+                    dialog_obj = await find_dialog(api.client_wrapper.client, dialog)
+                    if dialog_obj:
+                        dialog_id = dialog_obj.id
+
+                # 检查是否有遗漏的消息(发送前)
+                missed_messages = []
+                if dialog_id and hasattr(api.message_fetcher, 'tracker') and api.message_fetcher.tracker:
+                    tracker = api.message_fetcher.tracker
+                    last_read_id = tracker.get_last_read_message_id(dialog_id)
+
+                    if last_read_id:
+                        # 获取从上次已读到现在的所有消息
+                        try:
+                            all_messages = await api.get_unread_messages(dialog=dialog)
+                            if all_messages:
+                                # 过滤出可能遗漏的消息(ID大于上次已读ID)
+                                missed_messages = [
+                                    msg for msg in all_messages
+                                    if msg.message_id > last_read_id
+                                ]
+                        except Exception as e:
+                            print(f"  ⚠️  检查遗漏消息时出错: {e}")
+
+                # 发送消息
                 msg_id = await api.send_message(dialog=dialog, text=text)
                 target = dialog_label or str(dialog)
-                print(f"\n  ✅ 消息已发送给 {target} (ID: {msg_id})\n")
+                print(f"\n  ✅ 消息已发送给 {target} (ID: {msg_id})")
+
+                # 如果有遗漏的消息,显示提示
+                if missed_messages:
+                    print(f"  📬 检测到 {len(missed_messages)} 条中间消息:")
+                    for msg in missed_messages[:3]:  # 最多显示3条
+                        time_str = msg.date.strftime("%H:%M")
+                        preview = msg.content[:30].replace('\n', ' ') if msg.content else '[无文本]'
+                        print(f"     • [{time_str}] {msg.sender_name}: {preview}...")
+                    if len(missed_messages) > 3:
+                        print(f"     • ... 还有 {len(missed_messages) - 3} 条消息")
+                    print(f"  💡 使用 'chat' 命令查看完整对话")
+
+                print()
+
             except Exception as e:
                 print(f"\n  ❌ 发送失败: {e}\n")
     

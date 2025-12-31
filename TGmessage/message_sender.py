@@ -11,6 +11,7 @@ from telethon.tl.types import InputMediaUploadedPhoto, InputMediaUploadedDocumen
 
 from .client import TelegramClientWrapper
 from .utils import handle_flood_wait, find_dialog
+from .message_tracker import MessageTracker
 
 
 logger = logging.getLogger(__name__)
@@ -18,15 +19,18 @@ logger = logging.getLogger(__name__)
 
 class MessageSender:
     """消息发送器"""
-    
-    def __init__(self, client_wrapper: TelegramClientWrapper):
+
+    def __init__(self, client_wrapper: TelegramClientWrapper, enable_tracking: bool = True):
         """
         初始化消息发送器
-        
+
         Args:
             client_wrapper: Telegram 客户端封装实例
+            enable_tracking: 是否启用消息追踪(防止消息遗漏)
         """
         self.client_wrapper = client_wrapper
+        self.enable_tracking = enable_tracking
+        self.tracker = MessageTracker() if enable_tracking else None
     
     @property
     def client(self):
@@ -81,7 +85,25 @@ class MessageSender:
             logger.info(
                 f"成功发送消息到 {dialog_identifier}, 消息 ID: {message.id}"
             )
-            
+
+            # 记录发送的消息(用于消息追踪)
+            if self.enable_tracking and self.tracker:
+                # 获取对话ID
+                dialog_id = None
+                if isinstance(dialog_identifier, int):
+                    dialog_id = dialog_identifier
+                else:
+                    # 从entity获取ID
+                    try:
+                        from telethon import utils as tl_utils
+                        dialog_id = tl_utils.get_peer_id(entity)
+                    except Exception as e:
+                        logger.warning(f"无法获取对话ID用于追踪: {e}")
+
+                if dialog_id:
+                    self.tracker.record_sent_message(dialog_id, message.id)
+                    logger.debug(f"已记录发送消息: 对话 {dialog_id}, 消息 {message.id}")
+
             return message.id
             
         except errors.ChatWriteForbiddenError as e:
