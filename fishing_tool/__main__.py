@@ -1,59 +1,41 @@
 #!/usr/bin/env python3
 """
-TGmessage 摸鱼工具 - 向后兼容入口
-
-此文件保留用于向后兼容,实际功能已重构到 fishing_tool 包中。
-
-功能特性:
-- 📬 自动显示消息回复链（谁回复了谁的消息）
-- 💬 支持 @ 提及用户
-- ✏️ 支持编辑、删除、转发消息（通过 API）
-- ⭐ 收藏常用对话
-- 📨 发送消息
-
-新架构:
-- fishing_tool/core/      - 核心业务逻辑
-- fishing_tool/ui/         - 用户界面层
-- fishing_tool/models/     - 数据模型
-- fishing_tool/utils/      - 工具函数
+命令行入口模块
+支持: python -m fishing_tool [options]
 """
 import asyncio
 import sys
 
-from fishing_tool.core import FishingApp
-from fishing_tool.ui import InteractiveShell
-
-
-# 保留 FishingTool 类作为别名,用于向后兼容
-FishingTool = FishingApp
+from .core import FishingApp
+from .ui import InteractiveShell
 
 
 def print_usage():
     """打印使用说明"""
     print("\n用法:")
-    print("  python fishing.py                    # 快速查看摘要")
-    print("  python fishing.py -l [数量]          # 查看消息列表")
-    print("  python fishing.py -c <对话名称>      # 查看特定对话")
-    print("  python fishing.py -i                 # 交互模式")
+    print("  python -m fishing_tool                    # 快速查看摘要")
+    print("  python -m fishing_tool -l [数量]          # 查看消息列表")
+    print("  python -m fishing_tool -c <对话名称>      # 查看特定对话")
+    print("  python -m fishing_tool -i                 # 交互模式")
     print()
 
 
 async def main():
     """主函数"""
     app = FishingApp()
-
+    
     if len(sys.argv) == 1:
         # 默认: 快速查看
         await app.run_summary_view()
-
+    
     elif sys.argv[1] in ['-h', '--help']:
         print_usage()
-
+    
     elif sys.argv[1] in ['-l', '--list']:
         # 查看消息列表
         limit = int(sys.argv[2]) if len(sys.argv) > 2 else 10
         await app.run_recent_view(limit)
-
+    
     elif sys.argv[1] in ['-c', '--chat']:
         # 查看特定对话
         if len(sys.argv) > 2:
@@ -61,12 +43,12 @@ async def main():
         else:
             print("错误: 请指定对话名称")
             print_usage()
-
+    
     elif sys.argv[1] in ['-i', '--interactive']:
         # 交互模式
         shell = InteractiveShell(app)
         await shell.run()
-
+    
     else:
         print(f"错误: 未知选项 {sys.argv[1]}")
         print_usage()
@@ -79,3 +61,4 @@ if __name__ == '__main__':
         print("\n\n  👋 再见!\n")
     except Exception as e:
         print(f"\n❌ 错误: {e}\n")
+
