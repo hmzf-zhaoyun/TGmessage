@@ -5,7 +5,7 @@
 import asyncio
 import logging
 from functools import wraps
-from typing import Callable, Any, Optional
+from typing import Callable, Any, Optional, Union
 from datetime import datetime
 
 from telethon import errors
@@ -127,6 +127,41 @@ def truncate_text(text: str, max_length: int = 100, suffix: str = '...') -> str:
     return text[:max_length - len(suffix)] + suffix
 
 
+async def find_dialog(client, identifier: Union[int, str]):
+    if identifier is None:
+        return None
+
+    if isinstance(identifier, int):
+        try:
+            await client.get_entity(identifier)
+            dialogs = await client.get_dialogs()
+            for dialog in dialogs:
+                if dialog.id == identifier:
+                    return dialog
+        except Exception as e:
+            logger.warning("通过 ID %s 查找对话失败: %s", identifier, e)
+            return None
+
+    identifier_str = str(identifier).strip()
+    if not identifier_str:
+        return None
+
+    if identifier_str.startswith('@'):
+        identifier_str = identifier_str[1:]
+
+    async for dialog in client.iter_dialogs():
+        entity = dialog.entity
+        username = getattr(entity, 'username', None)
+        if username and username.lower() == identifier_str.lower():
+            return dialog
+
+        name = dialog.name
+        if name and name.lower() == identifier_str.lower():
+            return dialog
+
+    return None
+
+
 def get_media_type(message) -> Optional[str]:
     """
     获取消息的媒体类型
@@ -170,4 +205,3 @@ def get_media_type(message) -> Optional[str]:
             media_type = 'image'
     
     return media_type
-

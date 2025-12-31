@@ -10,7 +10,7 @@ from telethon import errors
 from telethon.tl.types import InputMediaUploadedPhoto, InputMediaUploadedDocument
 
 from .client import TelegramClientWrapper
-from .utils import handle_flood_wait
+from .utils import handle_flood_wait, find_dialog
 
 
 logger = logging.getLogger(__name__)
@@ -367,6 +367,11 @@ class MessageSender:
             entity = await self.client.get_entity(identifier)
             return entity
         except Exception as e:
-            logger.error(f"获取实体失败 {identifier}: {e}")
+            logger.warning("获取实体失败 %s: %s", identifier, e)
+
+        dialog = await find_dialog(self.client, identifier)
+        if dialog is None:
+            logger.error("解析对话失败 %s", identifier)
             raise ValueError(f"找不到对话: {identifier}")
 
+        return dialog.entity

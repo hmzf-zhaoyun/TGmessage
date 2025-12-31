@@ -13,7 +13,7 @@ from telethon.tl.types import (
 
 from .client import TelegramClientWrapper
 from .models import UnreadMessage, DialogInfo
-from .utils import handle_flood_wait, get_media_type
+from .utils import handle_flood_wait, get_media_type, find_dialog
 
 
 logger = logging.getLogger(__name__)
@@ -235,38 +235,7 @@ class MessageFetcher:
         Returns:
             Dialog 对象或 None
         """
-        # 如果是整数,直接作为 ID 查找
-        if isinstance(identifier, int):
-            try:
-                entity = await self.client.get_entity(identifier)
-                dialogs = await self.client.get_dialogs()
-                for dialog in dialogs:
-                    if dialog.id == identifier:
-                        return dialog
-            except Exception as e:
-                logger.warning(f"通过 ID {identifier} 查找对话失败: {e}")
-                return None
-
-        # 如果是字符串,尝试多种方式查找
-        identifier_str = str(identifier).strip()
-
-        # 移除 @ 前缀(如果有)
-        if identifier_str.startswith('@'):
-            identifier_str = identifier_str[1:]
-
-        # 遍历所有对话查找匹配项
-        async for dialog in self.client.iter_dialogs():
-            # 检查用户名匹配
-            entity = dialog.entity
-            if hasattr(entity, 'username') and entity.username:
-                if entity.username.lower() == identifier_str.lower():
-                    return dialog
-
-            # 检查名称匹配
-            if dialog.name.lower() == identifier_str.lower():
-                return dialog
-
-        return None
+        return await find_dialog(self.client, identifier)
 
     def _create_dialog_info(self, dialog) -> DialogInfo:
         """

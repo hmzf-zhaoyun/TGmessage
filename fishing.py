@@ -5,6 +5,7 @@ TGmessage 摸鱼工具 - 简洁版
 """
 import asyncio
 import sys
+import shlex
 from contextlib import asynccontextmanager
 from datetime import datetime
 
@@ -182,9 +183,17 @@ class FishingTool:
                     if not cmd:
                         continue
                     
-                    parts = cmd.split(maxsplit=1)
-                    action = parts[0].lower()
-                    arg = parts[1] if len(parts) > 1 else None
+                    try:
+                        tokens = shlex.split(cmd)
+                    except ValueError as e:
+                        print(f"  ❌ 参数解析失败: {e}")
+                        continue
+
+                    if not tokens:
+                        continue
+
+                    action = tokens[0].lower()
+                    args = tokens[1:]
                     
                     if action in ['q', 'quit', 'exit']:
                         print("\n  👋 再见!\n")
@@ -197,24 +206,42 @@ class FishingTool:
                         await self.quick_view()
                     
                     elif action in ['l', 'list']:
-                        limit = int(arg) if arg and arg.isdigit() else 10
+                        limit = int(args[0]) if args and args[0].isdigit() else 10
                         await self.detailed_view(limit)
                     
                     elif action in ['c', 'chat']:
-                        if arg:
-                            await self.chat_view(arg)
+                        if args:
+                            await self.chat_view(" ".join(args))
                         else:
                             print("  用法: chat <对话名称>")
                     
                     elif action in ['m', 'send']:
-                        if arg:
-                            parts2 = arg.split(maxsplit=1)
-                            if len(parts2) == 2:
-                                await self.send_quick_message(parts2[0], parts2[1])
+                        if args:
+                            dialog = None
+                            text = None
+
+                            if '--' in args:
+                                sep_index = args.index('--')
+                                dialog_tokens = args[:sep_index]
+                                text_tokens = args[sep_index + 1:]
+                                if dialog_tokens and text_tokens:
+                                    dialog = " ".join(dialog_tokens)
+                                    text = " ".join(text_tokens)
+
+                            if dialog is None and len(args) >= 2:
+                                dialog = args[0]
+                                text = " ".join(args[1:])
+
+                            if dialog and text:
+                                await self.send_quick_message(dialog, text)
                             else:
                                 print("  用法: send <对话名称> <消息内容>")
+                                print("  示例: send \"群组 名称\" 消息内容")
+                                print("        send 群组 名称 -- 消息内容")
                         else:
                             print("  用法: send <对话名称> <消息内容>")
+                            print("  示例: send \"群组 名称\" 消息内容")
+                            print("        send 群组 名称 -- 消息内容")
                     
                     else:
                         print(f"  ❌ 未知命令: {action}")
@@ -236,6 +263,7 @@ class FishingTool:
         print("     l, list [数量]  - 查看消息列表 (默认10条)")
         print("     c, chat <名称>  - 查看特定对话")
         print("     m, send <对话> <消息> - 发送消息")
+        print("     示例: send \"群组 名称\" 消息内容  或  send 群组 名称 -- 消息内容")
         print("     h, help         - 显示帮助")
         print("     q, quit         - 退出")
         print()
