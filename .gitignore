@@ -1,0 +1,34 @@
+# 环境变量文件(包含敏感信息)
+.env
+
+# Telegram 会话文件(包含认证信息)
+*.session
+*.session-journal
+sessions/
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 虚拟环境
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 日志文件
+*.log
+
+# 输出文件
+unread_messages.json
+*.xlsx
+*.csv
+
