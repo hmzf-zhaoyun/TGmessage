@@ -140,7 +140,7 @@ class MessageFetcher:
             ):
                 # Telethon 没有直接的"未读"标记
                 # 我们获取最近的 N 条消息,其中 N 是未读计数
-                unread_msg = self._create_unread_message(message, dialog)
+                unread_msg = await self._create_unread_message(message, dialog)
                 unread_messages.append(unread_msg)
             
             # 反转列表,使消息按时间从旧到新排列
@@ -275,7 +275,7 @@ class MessageFetcher:
             last_message_text=dialog.message.message if dialog.message else None,
         )
 
-    def _create_unread_message(self, message, dialog) -> UnreadMessage:
+    async def _create_unread_message(self, message, dialog) -> UnreadMessage:
         """
         从 Telethon Message 对象创建 UnreadMessage
 
@@ -286,6 +286,8 @@ class MessageFetcher:
         Returns:
             UnreadMessage 实例
         """
+        from .models import ReplyInfo
+
         # 获取发送者信息
         sender = message.sender
         sender_name = utils.get_display_name(sender) if sender else "Unknown"
@@ -297,6 +299,32 @@ class MessageFetcher:
         # 检查媒体类型
         has_media = message.media is not None
         media_type = get_media_type(message) if has_media else None
+
+        # 获取回复消息信息
+        reply_to_msg_id = None
+        reply_info = None
+
+        if message.is_reply and message.reply_to:
+            reply_to_msg_id = message.reply_to.reply_to_msg_id
+
+            # 显式获取被回复的消息
+            try:
+                replied_msg = await message.get_reply_message()
+                if replied_msg:
+                    reply_sender = replied_msg.sender
+
+                    reply_info = ReplyInfo(
+                        message_id=replied_msg.id,
+                        content=replied_msg.message or "",
+                        sender_id=replied_msg.sender_id or 0,
+                        sender_name=utils.get_display_name(reply_sender) if reply_sender else "Unknown",
+                        sender_username=getattr(reply_sender, 'username', None),
+                        date=replied_msg.date,
+                        has_media=replied_msg.media is not None,
+                        media_type=get_media_type(replied_msg) if replied_msg.media else None,
+                    )
+            except Exception as e:
+                logger.warning(f"获取回复消息失败 (消息ID: {reply_to_msg_id}): {e}")
 
         return UnreadMessage(
             message_id=message.id,
@@ -315,5 +343,7 @@ class MessageFetcher:
             is_forwarded=message.forward is not None,
             has_media=has_media,
             media_type=media_type,
+            reply_to_msg_id=reply_to_msg_id,
+            reply_info=reply_info,
             raw_message=message,
         )

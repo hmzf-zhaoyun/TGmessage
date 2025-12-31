@@ -19,6 +19,9 @@ from .main import (
     send_message,
     send_photo,
     send_file,
+    edit_message,
+    delete_messages,
+    forward_message,
 )
 
 __all__ = [
@@ -35,4 +38,7 @@ __all__ = [
     'send_message',
     'send_photo',
     'send_file',
+    'edit_message',
+    'delete_messages',
+    'forward_message',
 ]

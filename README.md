@@ -10,10 +10,13 @@
 - ✅ 获取指定群组/频道/用户的未读消息
 - ✅ 支持通过群组 ID、用户名或名称筛选
 - ✅ 返回详细的消息信息(内容、发送者、时间戳等)
+- ✅ **显示消息回复链** - 自动显示被回复的消息内容和发送者
 
 ### ✍️ 发送消息
 
 - ✅ 发送文本消息(支持 Markdown/HTML 格式)
+- ✅ **回复消息** - 指定回复的消息 ID，建立回复关系
+- ✅ **@ 提及用户** - 在消息中提及其他用户
 - ✅ 发送图片和文件
 - ✅ 转发消息
 - ✅ 编辑已发送的消息
@@ -207,6 +210,25 @@ async def main():
         dialog="MyGroup",
         text="**粗体** *斜体* `代码`",
         parse_mode='md'
+    )
+
+    # 回复消息
+    await send_message(
+        dialog="@username",
+        text="这是一条回复",
+        reply_to=msg_id  # 回复刚才发送的消息
+    )
+
+    # @ 提及用户（在群组中）
+    await send_message(
+        dialog="MyGroup",
+        text="@username 请查看这条消息"
+    )
+
+    # 使用显示名称提及（适用于没有用户名的用户）
+    await send_message(
+        dialog="MyGroup",
+        text='@"张三"(123456789) 你好！'
     )
 
 asyncio.run(main())

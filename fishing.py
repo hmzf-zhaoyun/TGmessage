@@ -2,6 +2,13 @@
 """
 TGmessage 摸鱼工具 - 简洁版
 快速查看 Telegram 未读消息,适合在工作时使用
+
+功能特性:
+- 📬 自动显示消息回复链（谁回复了谁的消息）
+- 💬 支持 @ 提及用户
+- ✏️ 支持编辑、删除、转发消息（通过 API）
+- ⭐ 收藏常用对话
+- 📨 发送消息
 """
 import asyncio
 import sys
@@ -23,6 +30,7 @@ class FishingTool:
         self.favorites_path = Path(__file__).resolve().parent / ".tgmessage_favorites.json"
         self.favorites = []
         self.current_dialog = None
+        self.recent_messages = {}  # 存储最近查看的消息，按对话ID分组: {dialog_id: [messages]}
         self._load_favorites()
 
     @asynccontextmanager
@@ -303,69 +311,114 @@ class FishingTool:
         """详细查看模式 - 显示消息内容"""
         async with self._get_api() as api:
             self.print_title(f"📨 最近 {limit} 条未读消息")
-            
+
             messages = await api.get_unread_messages(limit=limit)
-            
+
             if not messages:
                 print("\n  ✅ 没有未读消息\n")
                 return
-            
+
+            # 存储消息以便后续引用
+            for msg in messages:
+                if msg.chat_id not in self.recent_messages:
+                    self.recent_messages[msg.chat_id] = []
+                self.recent_messages[msg.chat_id].append(msg)
+
             current_chat = None
             msg_count = 0
-            
+
             for msg in messages:
                 # 新的对话,显示对话名
                 if current_chat != msg.chat_id:
                     if current_chat is not None:
                         print()
-                    
+
                     current_chat = msg.chat_id
                     emoji = "👤" if msg.is_user else "👥" if msg.is_group else "📢"
                     print(f"\n{emoji} [{msg.chat_name}]")
                     self.print_line("-", 70)
-                
-                # 显示消息
+
+                # 显示消息（包含消息ID）
                 time_str = msg.date.strftime("%H:%M")
-                print(f"{time_str} {msg.sender_name}:")
-                
+                # 构建发送者信息,如果有 username 则显示
+                sender_info = msg.sender_name
+                if msg.sender_username:
+                    sender_info += f" (@{msg.sender_username})"
+                print(f"[ID:{msg.message_id}] {time_str} {sender_info}:")
+
+                # 显示回复信息
+                if msg.is_reply and msg.reply_info:
+                    reply_preview = msg.reply_info.content[:30] if msg.reply_info.content else "[媒体]"
+                    # 构建被回复者信息,如果有 username 则显示
+                    reply_sender_info = msg.reply_info.sender_name
+                    if msg.reply_info.sender_username:
+                        reply_sender_info += f" (@{msg.reply_info.sender_username})"
+                    print(f"  ↩️  回复 {reply_sender_info}: {reply_preview}...")
+
                 if msg.content:
                     lines = msg.content.split('\n')[:3]
                     for line in lines:
                         if len(line) > 60:
                             line = line[:57] + "..."
                         print(f"  {line}")
-                
+
                 if msg.has_media:
                     print(f"  📎 [{msg.media_type}]")
-                
+
                 msg_count += 1
-            
+
             print(f"\n  显示了 {msg_count} 条消息\n")
+            print("  💡 提示: 使用消息ID进行回复、编辑、删除等操作")
     
     async def chat_view(self, dialog_identifier, dialog_label: str = None):
         """查看特定对话"""
         async with self._get_api() as api:
             title = dialog_label or str(dialog_identifier)
             self.print_title(f"💬 {title}")
-            
+
             try:
                 messages = await api.get_unread_messages(
                     dialog=dialog_identifier,
                     limit=api.config.max_unread_fetch
                 )
-                
+
                 if not messages:
                     print("\n  ✅ 没有未读消息\n")
                     return
-                
+
+                # 存储消息以便后续引用
+                if isinstance(dialog_identifier, int):
+                    dialog_id = dialog_identifier
+                else:
+                    # 从第一条消息获取对话ID
+                    dialog_id = messages[0].chat_id if messages else None
+
+                if dialog_id:
+                    if dialog_id not in self.recent_messages:
+                        self.recent_messages[dialog_id] = []
+                    self.recent_messages[dialog_id].extend(messages)
+
                 for msg in messages:
                     time_str = msg.date.strftime("%m-%d %H:%M")
-                    print(f"\n[{time_str}] {msg.sender_name}:")
-                    
+                    # 构建发送者信息,如果有 username 则显示
+                    sender_info = msg.sender_name
+                    if msg.sender_username:
+                        sender_info += f" (@{msg.sender_username})"
+                    print(f"\n[ID:{msg.message_id}] [{time_str}] {sender_info}:")
+
+                    # 显示回复信息
+                    if msg.is_reply and msg.reply_info:
+                        reply_preview = msg.reply_info.content[:30] if msg.reply_info.content else "[媒体]"
+                        # 构建被回复者信息,如果有 username 则显示
+                        reply_sender_info = msg.reply_info.sender_name
+                        if msg.reply_info.sender_username:
+                            reply_sender_info += f" (@{msg.reply_info.sender_username})"
+                        print(f"  ↩️  回复 {reply_sender_info}: {reply_preview}...")
+
                     if msg.content:
                         for line in msg.content.split('\n'):
                             print(f"  {line}")
-                    
+
                     if msg.has_media:
                         print(f"  📎 [{msg.media_type}]")
 
@@ -374,9 +427,10 @@ class FishingTool:
                     dialog=dialog_identifier,
                     max_message_id=max_message_id
                 )
-                
-                print(f"\n  共 {len(messages)} 条未读消息,已标记为已读\n")
-            
+
+                print(f"\n  共 {len(messages)} 条未读消息,已标记为已读")
+                print("  💡 提示: 使用消息ID进行回复、编辑、删除等操作\n")
+
             except ValueError as e:
                 print(f"\n  ❌ 错误: {e}\n")
     
@@ -446,10 +500,11 @@ class FishingTool:
         """交互模式"""
         async with TelegramUnreadMessageAPI() as api:
             self.api = api
-            
+
             print("\n  🎣 TGmessage 摸鱼工具 - 交互模式")
+            print("  ✨ 新功能: 支持消息回复链显示、@ 提及、编辑、删除等")
             print("  输入 'help' 查看帮助\n")
-            
+
             while True:
                 try:
                     cmd = input("TG> ").strip()
@@ -540,7 +595,19 @@ class FishingTool:
                             await self.send_quick_message(dialog, text, dialog_label=dialog_label)
                         else:
                             self._print_send_usage(self.current_dialog is not None)
-                    
+
+                    elif action in ['r', 'reply']:
+                        await self.handle_reply(args)
+
+                    elif action in ['e', 'edit']:
+                        await self.handle_edit(args)
+
+                    elif action in ['d', 'delete', 'del']:
+                        await self.handle_delete(args)
+
+                    elif action in ['f', 'forward', 'fwd']:
+                        await self.handle_forward(args)
+
                     else:
                         print(f"  ❌ 未知命令: {action}")
                         print("  输入 'help' 查看帮助")
@@ -554,20 +621,158 @@ class FishingTool:
 
         self.api = None
     
+    async def handle_reply(self, args):
+        """处理回复消息命令"""
+        if not self.current_dialog:
+            print("  ❌ 请先使用 'use' 命令进入对话")
+            return
+
+        if len(args) < 2:
+            print("  用法: reply <消息ID> <回复内容>")
+            print("  示例: reply 12345 收到！")
+            return
+
+        try:
+            msg_id = int(args[0])
+            text = " ".join(args[1:])
+
+            await self.api.send_message(
+                dialog=self.current_dialog["dialog_id"],
+                text=text,
+                reply_to=msg_id
+            )
+
+            print(f"\n  ✅ 已回复消息 ID:{msg_id}")
+            print(f"  内容: {text}\n")
+
+        except ValueError:
+            print("  ❌ 消息ID必须是数字")
+        except Exception as e:
+            print(f"  ❌ 回复失败: {e}")
+
+    async def handle_edit(self, args):
+        """处理编辑消息命令"""
+        if not self.current_dialog:
+            print("  ❌ 请先使用 'use' 命令进入对话")
+            return
+
+        if len(args) < 2:
+            print("  用法: edit <消息ID> <新内容>")
+            print("  示例: edit 12345 这是修改后的内容")
+            return
+
+        try:
+            msg_id = int(args[0])
+            new_text = " ".join(args[1:])
+
+            success = await self.api.edit_message(
+                dialog=self.current_dialog["dialog_id"],
+                message_id=msg_id,
+                new_text=new_text
+            )
+
+            if success:
+                print(f"\n  ✅ 已编辑消息 ID:{msg_id}")
+                print(f"  新内容: {new_text}\n")
+            else:
+                print(f"  ❌ 编辑失败 (可能不是你发送的消息或超过编辑时限)")
+
+        except ValueError:
+            print("  ❌ 消息ID必须是数字")
+        except Exception as e:
+            print(f"  ❌ 编辑失败: {e}")
+
+    async def handle_delete(self, args):
+        """处理删除消息命令"""
+        if not self.current_dialog:
+            print("  ❌ 请先使用 'use' 命令进入对话")
+            return
+
+        if not args:
+            print("  用法: delete <消息ID> [消息ID2] [消息ID3] ...")
+            print("  示例: delete 12345")
+            print("        delete 12345 12346 12347")
+            return
+
+        try:
+            msg_ids = [int(arg) for arg in args]
+
+            count = await self.api.delete_messages(
+                dialog=self.current_dialog["dialog_id"],
+                message_ids=msg_ids,
+                revoke=True  # 双向删除
+            )
+
+            print(f"\n  ✅ 成功删除 {count} 条消息")
+            print(f"  消息ID: {', '.join(str(mid) for mid in msg_ids)}\n")
+
+        except ValueError:
+            print("  ❌ 消息ID必须是数字")
+        except Exception as e:
+            print(f"  ❌ 删除失败: {e}")
+
+    async def handle_forward(self, args):
+        """处理转发消息命令"""
+        if not self.current_dialog:
+            print("  ❌ 请先使用 'use' 命令进入对话（源对话）")
+            return
+
+        if len(args) < 2:
+            print("  用法: forward <消息ID> <目标对话>")
+            print("  示例: forward 12345 @username")
+            print("        forward 12345 \"群组名称\"")
+            return
+
+        try:
+            msg_id = int(args[0])
+            to_dialog = " ".join(args[1:])
+
+            forwarded_ids = await self.api.forward_message(
+                from_dialog=self.current_dialog["dialog_id"],
+                to_dialog=to_dialog,
+                message_ids=msg_id
+            )
+
+            print(f"\n  ✅ 消息已转发")
+            print(f"  源消息ID: {msg_id}")
+            print(f"  目标对话: {to_dialog}")
+            print(f"  新消息ID: {forwarded_ids}\n")
+
+        except ValueError:
+            print("  ❌ 消息ID必须是数字")
+        except Exception as e:
+            print(f"  ❌ 转发失败: {e}")
+
     def show_help(self):
         """显示帮助"""
         print("\n  📖 命令列表:")
+        print("\n  📬 查看消息:")
         print("     s, summary      - 查看摘要")
-        print("     l, list [数量]  - 查看消息列表 (默认10条)")
+        print("     l, list [数量]  - 查看消息列表 (默认10条，自动显示回复链和消息ID)")
         print("     c, chat [名称]  - 查看特定对话 (进入对话后可省略)")
-        print("     m, send [对话] <消息> - 发送消息 (进入对话后可省略)")
+
+        print("\n  💬 发送与操作:")
+        print("     m, send [对话] <消息> - 发送消息 (进入对话后可省略，m 是快捷缩写)")
+        print("     r, reply <消息ID> <内容> - 回复消息 (需先 use 进入对话)")
+        print("     e, edit <消息ID> <新内容> - 编辑消息 (需先 use 进入对话)")
+        print("     d, delete <消息ID> [...] - 删除消息 (需先 use 进入对话)")
+        print("     f, forward <消息ID> <目标对话> - 转发消息")
+        print("\n     示例:")
+        print("           m 你好              (使用 m 快速发送)")
+        print("           send @username 你好  (@ 提及用户)")
+        print("           reply 12345 收到！")
+        print("           edit 12345 修改后的内容")
+        print("           delete 12345 12346")
+        print("           forward 12345 @username")
+
+        print("\n  📌 收藏管理:")
         print("     stars           - 查看收藏对话")
         print("     star <对话|序号> - 收藏对话 (可省略使用当前对话)")
         print("     unstar <对话|序号> - 取消收藏 (可省略使用当前对话)")
         print("     use <对话|序号>  - 进入对话")
         print("     back            - 退出当前对话")
-        print("     示例: send 你好")
-        print("           send \"群组 名称\" 消息内容  或  send 群组 名称 -- 消息内容")
+
+        print("\n  ℹ️  通用:")
         print("     h, help         - 显示帮助")
         print("     q, quit         - 退出")
         print()

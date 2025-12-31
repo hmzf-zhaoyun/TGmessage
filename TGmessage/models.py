@@ -8,6 +8,26 @@ from typing import Optional
 
 
 @dataclass
+class ReplyInfo:
+    """回复消息信息"""
+
+    message_id: int
+    content: str
+    sender_id: int
+    sender_name: str
+    sender_username: Optional[str] = None
+    date: Optional[datetime] = None
+    has_media: bool = False
+    media_type: Optional[str] = None
+
+    def __str__(self) -> str:
+        """格式化输出回复信息"""
+        media_info = f" [{self.media_type}]" if self.has_media else ""
+        content_preview = self.content[:50] + "..." if len(self.content) > 50 else self.content
+        return f"{self.sender_name}: {content_preview}{media_info}"
+
+
+@dataclass
 class UnreadMessage:
     """未读消息数据模型"""
 
@@ -33,6 +53,10 @@ class UnreadMessage:
     has_media: bool = False
     media_type: Optional[str] = None
 
+    # 回复相关信息
+    reply_to_msg_id: Optional[int] = None
+    reply_info: Optional[ReplyInfo] = None
+
     raw_message: Optional[object] = field(default=None, repr=False)
 
     def __str__(self) -> str:
@@ -40,16 +64,24 @@ class UnreadMessage:
         chat_type = "用户" if self.is_user else "群组" if self.is_group else "频道"
         media_info = f" [{self.media_type}]" if self.has_media else ""
 
-        return (
+        # 构建基本消息信息
+        result = (
             f"[{chat_type}] {self.chat_name}\n"
             f"  发送者: {self.sender_name}\n"
             f"  时间: {self.date.strftime('%Y-%m-%d %H:%M:%S')}\n"
-            f"  内容{media_info}: {self.content[:100]}{'...' if len(self.content) > 100 else ''}"
         )
+
+        # 如果是回复消息，添加被回复的消息信息
+        if self.is_reply and self.reply_info:
+            result += f"  ↩️ 回复 {self.reply_info}\n"
+
+        result += f"  内容{media_info}: {self.content[:100]}{'...' if len(self.content) > 100 else ''}"
+
+        return result
 
     def to_dict(self) -> dict:
         """转换为字典格式"""
-        return {
+        result = {
             'message_id': self.message_id,
             'content': self.content,
             'date': self.date.isoformat(),
@@ -66,7 +98,23 @@ class UnreadMessage:
             'is_forwarded': self.is_forwarded,
             'has_media': self.has_media,
             'media_type': self.media_type,
+            'reply_to_msg_id': self.reply_to_msg_id,
         }
+
+        # 添加回复信息
+        if self.reply_info:
+            result['reply_info'] = {
+                'message_id': self.reply_info.message_id,
+                'content': self.reply_info.content,
+                'sender_id': self.reply_info.sender_id,
+                'sender_name': self.reply_info.sender_name,
+                'sender_username': self.reply_info.sender_username,
+                'date': self.reply_info.date.isoformat() if self.reply_info.date else None,
+                'has_media': self.reply_info.has_media,
+                'media_type': self.reply_info.media_type,
+            }
+
+        return result
 
 
 @dataclass

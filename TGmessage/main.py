@@ -437,3 +437,102 @@ async def send_file(
             file=file,
             caption=caption
         )
+
+
+async def edit_message(
+    dialog: Union[int, str],
+    message_id: int,
+    new_text: str,
+    phone: Optional[str] = None,
+    password: Optional[str] = None,
+    parse_mode: Optional[str] = 'md',
+    config: Optional[Config] = None
+) -> bool:
+    """
+    编辑消息(便捷函数)
+
+    Args:
+        dialog: 对话标识符
+        message_id: 要编辑的消息 ID
+        new_text: 新的消息文本
+        phone: 手机号码(首次登录需要)
+        password: 两步验证密码
+        parse_mode: 解析模式
+        config: 配置对象
+
+    Returns:
+        是否编辑成功
+    """
+    async with TelegramUnreadMessageAPI(config) as api:
+        if phone:
+            await api.connect(phone=phone, password=password)
+        return await api.edit_message(
+            dialog=dialog,
+            message_id=message_id,
+            new_text=new_text,
+            parse_mode=parse_mode
+        )
+
+
+async def delete_messages(
+    dialog: Union[int, str],
+    message_ids: Union[int, List[int]],
+    phone: Optional[str] = None,
+    password: Optional[str] = None,
+    revoke: bool = True,
+    config: Optional[Config] = None
+) -> int:
+    """
+    删除消息(便捷函数)
+
+    Args:
+        dialog: 对话标识符
+        message_ids: 消息 ID 或 ID 列表
+        phone: 手机号码(首次登录需要)
+        password: 两步验证密码
+        revoke: 是否对所有人删除(True 为双向删除,False 为只删除自己这边)
+        config: 配置对象
+
+    Returns:
+        成功删除的消息数量
+    """
+    async with TelegramUnreadMessageAPI(config) as api:
+        if phone:
+            await api.connect(phone=phone, password=password)
+        return await api.delete_messages(
+            dialog=dialog,
+            message_ids=message_ids,
+            revoke=revoke
+        )
+
+
+async def forward_message(
+    from_dialog: Union[int, str],
+    to_dialog: Union[int, str],
+    message_ids: Union[int, List[int]],
+    phone: Optional[str] = None,
+    password: Optional[str] = None,
+    config: Optional[Config] = None
+) -> List[int]:
+    """
+    转发消息(便捷函数)
+
+    Args:
+        from_dialog: 源对话标识符
+        to_dialog: 目标对话标识符
+        message_ids: 消息 ID 或 ID 列表
+        phone: 手机号码(首次登录需要)
+        password: 两步验证密码
+        config: 配置对象
+
+    Returns:
+        转发后的消息 ID 列表
+    """
+    async with TelegramUnreadMessageAPI(config) as api:
+        if phone:
+            await api.connect(phone=phone, password=password)
+        return await api.forward_message(
+            from_dialog=from_dialog,
+            to_dialog=to_dialog,
+            message_ids=message_ids
+        )

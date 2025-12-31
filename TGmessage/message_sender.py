@@ -3,11 +3,12 @@
 提供发送消息的功能
 """
 import logging
+import re
 from typing import Optional, Union, List
 from pathlib import Path
 
 from telethon import errors
-from telethon.tl.types import InputMediaUploadedPhoto, InputMediaUploadedDocument
+from telethon.tl.types import InputMediaUploadedPhoto, InputMediaUploadedDocument, MessageEntityMentionName
 
 from .client import TelegramClientWrapper
 from .utils import handle_flood_wait, find_dialog
@@ -37,6 +38,80 @@ class MessageSender:
         """获取 Telegram 客户端"""
         return self.client_wrapper.client
     
+    async def _parse_mentions(
+        self,
+        text: str,
+        entity
+    ) -> tuple:
+        """
+        解析消息中的 @ 提及，返回处理后的文本和 entities
+
+        只在群组/频道中启用 @ 提及功能，避免在私聊中意外创建对话
+
+        Args:
+            text: 消息文本
+            entity: 对话实体
+
+        Returns:
+            (处理后的文本, entities列表)
+        """
+        from telethon.tl.types import Channel, Chat
+
+        # 检查是否为群组或频道
+        is_group_or_channel = isinstance(entity, (Channel, Chat))
+
+        if not is_group_or_channel:
+            # 私聊中不解析 @ 提及,避免意外创建对话
+            logger.debug("私聊对话中禁用 @ 提及解析")
+            return text, None
+
+        # 匹配 @username 或 @"显示名称"(user_id)
+        mention_pattern = r'@"([^"]+)"\((\d+)\)|@([a-zA-Z0-9_]+)'
+        matches = list(re.finditer(mention_pattern, text))
+
+        if not matches:
+            return text, None
+
+        entities = []
+        offset_adjust = 0
+
+        for match in matches:
+            # 注意：调整了分组顺序，先匹配 @"name"(id)，再匹配 @username
+            display_name = match.group(1)
+            user_id = match.group(2)
+            username = match.group(3)
+
+            original_text = match.group(0)
+            start = match.start() - offset_adjust
+
+            try:
+                if user_id and display_name:
+                    # 使用用户 ID 创建精确 mention (不会触发私聊)
+                    # 这种方式直接使用已知的 user_id，不需要查询
+                    mention_entity = MessageEntityMentionName(
+                        offset=start,
+                        length=len(display_name) + 1,  # @ + 显示名称
+                        user_id=int(user_id)
+                    )
+                    entities.append(mention_entity)
+
+                    # 替换文本中的 mention
+                    new_text = f"@{display_name}"
+                    text = text[:start] + new_text + text[start + len(original_text):]
+                    offset_adjust += len(original_text) - len(new_text)
+
+                elif username:
+                    # 使用 @username 格式，Telegram 会自动处理
+                    # 只有在群组内的成员才会被提及，不会触发私聊
+                    # 保持原样，不做任何处理
+                    pass
+
+            except Exception as e:
+                logger.warning(f"解析 mention 失败: {original_text}, 错误: {e}")
+                continue
+
+        return text, entities if entities else None
+
     @handle_flood_wait
     async def send_text_message(
         self,
@@ -44,44 +119,52 @@ class MessageSender:
         text: str,
         parse_mode: Optional[str] = 'md',
         link_preview: bool = True,
-        reply_to: Optional[int] = None
+        reply_to: Optional[int] = None,
+        parse_mentions: bool = True
     ) -> int:
         """
         发送文本消息
-        
+
         Args:
             dialog_identifier: 对话标识符(ID/用户名/名称)
             text: 消息文本内容
             parse_mode: 解析模式('md' 为 Markdown, 'html' 为 HTML, None 为纯文本)
             link_preview: 是否显示链接预览
             reply_to: 回复的消息 ID
-            
+            parse_mentions: 是否解析 @ 提及
+
         Returns:
             发送的消息 ID
-            
+
         Raises:
             ValueError: 找不到指定的对话
             errors.ChatWriteForbiddenError: 没有发送消息的权限
         """
         if not self.client_wrapper.is_connected:
             raise RuntimeError("客户端未连接,请先调用 connect()")
-        
+
         if not text or not text.strip():
             raise ValueError("消息内容不能为空")
-        
+
         try:
             # 获取目标实体
             entity = await self._get_entity(dialog_identifier)
-            
+
+            # 解析 @ 提及
+            formatting_entities = None
+            if parse_mentions:
+                text, formatting_entities = await self._parse_mentions(text, entity)
+
             # 发送消息
             message = await self.client.send_message(
                 entity,
                 text,
                 parse_mode=parse_mode,
                 link_preview=link_preview,
-                reply_to=reply_to
+                reply_to=reply_to,
+                formatting_entities=formatting_entities
             )
-            
+
             logger.info(
                 f"成功发送消息到 {dialog_identifier}, 消息 ID: {message.id}"
             )
@@ -105,7 +188,7 @@ class MessageSender:
                     logger.debug(f"已记录发送消息: 对话 {dialog_id}, 消息 {message.id}")
 
             return message.id
-            
+
         except errors.ChatWriteForbiddenError as e:
             logger.error(f"没有发送消息的权限: {e}")
             raise
