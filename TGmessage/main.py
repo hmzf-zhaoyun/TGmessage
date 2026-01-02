@@ -4,12 +4,14 @@
 """
 import asyncio
 import logging
+from datetime import datetime
 from typing import List, Optional, Union
 from pathlib import Path
 
 from .client import TelegramClientWrapper
 from .message_fetcher import MessageFetcher
 from .message_sender import MessageSender
+from .message_exporter import MessageExporter, ExportFormat, _get_formatter
 from .models import UnreadMessage, DialogInfo
 from .config import Config, get_config
 
@@ -32,6 +34,14 @@ class TelegramUnreadMessageAPI:
         self.client_wrapper = TelegramClientWrapper(self.config)
         self.message_fetcher = MessageFetcher(self.client_wrapper, enable_tracking=enable_message_tracking)
         self.message_sender = MessageSender(self.client_wrapper, enable_tracking=enable_message_tracking)
+        self._message_exporter: Optional[MessageExporter] = None
+
+    @property
+    def message_exporter(self) -> MessageExporter:
+        """获取消息导出器（延迟初始化）"""
+        if self._message_exporter is None:
+            self._message_exporter = MessageExporter(self.client_wrapper)
+        return self._message_exporter
     
     async def connect(
         self,
@@ -267,6 +277,50 @@ class TelegramUnreadMessageAPI:
             message_id=message_id,
             new_text=new_text,
             parse_mode=parse_mode
+        )
+
+    # 消息导出相关方法
+
+    async def export_messages(
+        self,
+        dialog: Union[int, str],
+        output_path: Union[str, Path],
+        fmt: Union[ExportFormat, str] = ExportFormat.JSON,
+        limit: Optional[int] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        download_media: bool = False,
+        media_dir: Optional[Union[str, Path]] = None,
+    ) -> Path:
+        """
+        导出对话消息到文件
+
+        Args:
+            dialog: 对话标识符（ID/用户名/名称）
+            output_path: 输出文件路径或目录
+            fmt: 导出格式（json/txt/csv/md）
+            limit: 最大消息数量
+            start_date: 开始时间
+            end_date: 结束时间
+            download_media: 是否下载媒体文件
+            media_dir: 媒体文件保存目录
+
+        Returns:
+            导出文件的路径
+        """
+        # 支持字符串格式转换
+        if isinstance(fmt, str):
+            fmt = ExportFormat(fmt.lower())
+
+        return await self.message_exporter.export_to_file(
+            dialog_identifier=dialog,
+            output_path=output_path,
+            fmt=fmt,
+            limit=limit,
+            start_date=start_date,
+            end_date=end_date,
+            download_media=download_media,
+            media_dir=media_dir,
         )
 
     async def __aenter__(self):
@@ -535,4 +589,51 @@ async def forward_message(
             from_dialog=from_dialog,
             to_dialog=to_dialog,
             message_ids=message_ids
+        )
+
+
+async def export_messages(
+    dialog: Union[int, str],
+    output_path: Union[str, Path],
+    fmt: Union[ExportFormat, str] = ExportFormat.JSON,
+    limit: Optional[int] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    download_media: bool = False,
+    media_dir: Optional[Union[str, Path]] = None,
+    phone: Optional[str] = None,
+    password: Optional[str] = None,
+    config: Optional[Config] = None,
+) -> Path:
+    """
+    导出对话消息到文件（便捷函数）
+
+    Args:
+        dialog: 对话标识符（ID/用户名/名称）
+        output_path: 输出文件路径或目录
+        fmt: 导出格式（json/txt/csv/md 或 ExportFormat 枚举）
+        limit: 最大消息数量
+        start_date: 开始时间
+        end_date: 结束时间
+        download_media: 是否下载媒体文件
+        media_dir: 媒体文件保存目录
+        phone: 手机号码（首次登录需要）
+        password: 两步验证密码
+        config: 配置对象
+
+    Returns:
+        导出文件的路径
+    """
+    async with TelegramUnreadMessageAPI(config) as api:
+        if phone:
+            await api.connect(phone=phone, password=password)
+        return await api.export_messages(
+            dialog=dialog,
+            output_path=output_path,
+            fmt=fmt,
+            limit=limit,
+            start_date=start_date,
+            end_date=end_date,
+            download_media=download_media,
+            media_dir=media_dir,
         )

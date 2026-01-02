@@ -12,6 +12,7 @@ from .models import UnreadMessage, DialogInfo
 from .client import TelegramClientWrapper
 from .message_fetcher import MessageFetcher
 from .message_sender import MessageSender
+from .message_exporter import MessageExporter, ExportFormat
 from .main import (
     TelegramUnreadMessageAPI,
     get_unread_dialogs,
@@ -22,6 +23,7 @@ from .main import (
     edit_message,
     delete_messages,
     forward_message,
+    export_messages,
 )
 
 __all__ = [
@@ -32,6 +34,8 @@ __all__ = [
     'TelegramClientWrapper',
     'MessageFetcher',
     'MessageSender',
+    'MessageExporter',
+    'ExportFormat',
     'TelegramUnreadMessageAPI',
     'get_unread_dialogs',
     'get_unread_messages',
@@ -41,4 +45,5 @@ __all__ = [
     'edit_message',
     'delete_messages',
     'forward_message',
+    'export_messages',
 ]

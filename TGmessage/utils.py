@@ -5,19 +5,16 @@
 import asyncio
 import logging
 from functools import wraps
-from typing import Callable, Any, Optional, Union
+from typing import Callable, Optional, Union
 from datetime import datetime
 
 from telethon import errors
 
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-
 logger = logging.getLogger(__name__)
+
+# FloodWait 最大等待时间（秒），超过此时间将抛出异常
+MAX_FLOOD_WAIT_SECONDS = 300
 
 
 def async_retry(
@@ -68,7 +65,10 @@ def async_retry(
 def handle_flood_wait(func: Callable) -> Callable:
     """
     处理 Telegram FloodWaitError 的装饰器
-    自动等待指定的时间后重试
+    自动等待指定的时间后重试，但有最大等待时间限制
+
+    Raises:
+        RuntimeError: 当等待时间超过 MAX_FLOOD_WAIT_SECONDS 时抛出
     """
     @wraps(func)
     async def wrapper(*args, **kwargs):
@@ -77,18 +77,27 @@ def handle_flood_wait(func: Callable) -> Callable:
                 return await func(*args, **kwargs)
             except errors.FloodWaitError as e:
                 wait_time = e.seconds
+                if wait_time > MAX_FLOOD_WAIT_SECONDS:
+                    logger.error(
+                        f"FloodWaitError 等待时间过长 ({wait_time}s)，"
+                        f"超过最大限制 ({MAX_FLOOD_WAIT_SECONDS}s)，已中止操作"
+                    )
+                    raise RuntimeError(
+                        f"Telegram 要求等待 {wait_time} 秒，超过最大等待时间限制 "
+                        f"({MAX_FLOOD_WAIT_SECONDS}s)。请稍后重试。"
+                    ) from e
                 logger.warning(
-                    f"遭遇 FloodWaitError,需要等待 {wait_time} 秒后重试..."
+                    f"遭遇 FloodWaitError，需要等待 {wait_time} 秒后重试..."
                 )
                 await asyncio.sleep(wait_time)
             except errors.FloodError as e:
                 # 通用的 Flood 错误,等待固定时间
                 wait_time = 60
                 logger.warning(
-                    f"遭遇 FloodError: {e},等待 {wait_time} 秒后重试..."
+                    f"遭遇 FloodError: {e}，等待 {wait_time} 秒后重试..."
                 )
                 await asyncio.sleep(wait_time)
-    
+
     return wrapper
 
 
@@ -128,6 +137,16 @@ def truncate_text(text: str, max_length: int = 100, suffix: str = '...') -> str:
 
 
 async def find_dialog(client, identifier: Union[int, str]):
+    """
+    根据标识符查找对话
+
+    Args:
+        client: Telethon 客户端实例
+        identifier: 对话 ID (int)、用户名或名称 (str)
+
+    Returns:
+        Dialog 对象或 None
+    """
     if identifier is None:
         return None
 
@@ -138,8 +157,8 @@ async def find_dialog(client, identifier: Union[int, str]):
             for dialog in dialogs:
                 if dialog.id == identifier:
                     return dialog
-        except Exception as e:
-            logger.warning("通过 ID %s 查找对话失败: %s", identifier, e)
+        except (ValueError, errors.RPCError) as e:
+            logger.debug("通过 ID %s 查找对话失败: %s", identifier, e)
             return None
 
     identifier_str = str(identifier).strip()

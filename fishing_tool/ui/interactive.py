@@ -114,7 +114,10 @@ class InteractiveShell:
         
         elif action in ['f', 'forward', 'fwd']:
             await self._handle_forward_command(args)
-        
+
+        elif action in ['x', 'export']:
+            await self._handle_export_command(args)
+
         else:
             print(f"  ❌ 未知命令: {action}")
             print("  输入 'help' 查看帮助")
@@ -216,6 +219,78 @@ class InteractiveShell:
         except ValueError:
             print("  ❌ 消息ID必须是数字")
 
+    async def _handle_export_command(self, args: list):
+        """处理导出命令"""
+        dialog = None
+        output = None
+        fmt = 'json'
+        limit = None
+        start_date = None
+        end_date = None
+        download_media = False
+
+        # 解析参数
+        i = 0
+        while i < len(args):
+            arg = args[i]
+            if arg in ['-f', '--format'] and i + 1 < len(args):
+                fmt = args[i + 1]
+                i += 2
+            elif arg in ['-o', '--output'] and i + 1 < len(args):
+                output = args[i + 1]
+                i += 2
+            elif arg in ['-n', '--limit'] and i + 1 < len(args):
+                try:
+                    limit = int(args[i + 1])
+                except ValueError:
+                    print("  ❌ 数量必须是数字")
+                    return
+                i += 2
+            elif arg in ['-s', '--start'] and i + 1 < len(args):
+                start_date = args[i + 1]
+                i += 2
+            elif arg in ['-e', '--end'] and i + 1 < len(args):
+                end_date = args[i + 1]
+                i += 2
+            elif arg in ['-m', '--media']:
+                download_media = True
+                i += 1
+            elif dialog is None:
+                dialog = arg
+                i += 1
+            else:
+                i += 1
+
+        # 如果没有指定对话，使用当前对话
+        if dialog is None and self.app.current_dialog:
+            dialog = self.app.current_dialog.dialog_id
+
+        if dialog is None:
+            print("  用法: export [对话] [选项]")
+            print("  选项:")
+            print("     -f, --format <格式>  导出格式 (json/txt/csv/md，默认 json)")
+            print("     -o, --output <路径>  输出路径 (默认当前目录)")
+            print("     -n, --limit <数量>   最大消息数量")
+            print("     -s, --start <时间>   开始时间 (YYYY-MM-DD)")
+            print("     -e, --end <时间>     结束时间 (YYYY-MM-DD)")
+            print("     -m, --media          下载媒体文件")
+            print("\n  示例:")
+            print("     export                          导出当前对话")
+            print("     export @username -f md          导出为 Markdown")
+            print("     export -n 100 -f csv            导出最近 100 条为 CSV")
+            print("     export -s 2024-01-01 -m         导出指定日期后的消息并下载媒体")
+            return
+
+        await self.app.export_messages(
+            dialog_identifier=dialog,
+            output_path=output,
+            fmt=fmt,
+            limit=limit,
+            start_date=start_date,
+            end_date=end_date,
+            download_media=download_media,
+        )
+
     def _show_help(self):
         """显示帮助"""
         print("\n  📖 命令列表:")
@@ -237,6 +312,18 @@ class InteractiveShell:
         print("           edit 12345 修改后的内容")
         print("           delete 12345 12346")
         print("           forward 12345 @username")
+
+        print("\n  📤 消息导出:")
+        print("     x, export [对话] [选项] - 导出消息")
+        print("        -f, --format <格式>  导出格式 (json/txt/csv/md)")
+        print("        -o, --output <路径>  输出路径")
+        print("        -n, --limit <数量>   最大消息数量")
+        print("        -s, --start <时间>   开始时间 (YYYY-MM-DD)")
+        print("        -e, --end <时间>     结束时间 (YYYY-MM-DD)")
+        print("        -m, --media          下载媒体文件")
+        print("\n     示例:")
+        print("           export -f md       (导出当前对话为 Markdown)")
+        print("           export @user -n 50 (导出指定对话最近50条)")
 
         print("\n  📌 收藏管理:")
         print("     stars           - 查看收藏对话")

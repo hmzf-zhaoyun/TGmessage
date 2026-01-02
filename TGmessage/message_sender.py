@@ -8,7 +8,7 @@ from typing import Optional, Union, List
 from pathlib import Path
 
 from telethon import errors
-from telethon.tl.types import InputMediaUploadedPhoto, InputMediaUploadedDocument, MessageEntityMentionName
+from telethon.tl.types import MessageEntityMentionName
 
 from .client import TelegramClientWrapper
 from .utils import handle_flood_wait, find_dialog
@@ -471,8 +471,12 @@ class MessageSender:
             # 尝试直接获取实体
             entity = await self.client.get_entity(identifier)
             return entity
-        except Exception as e:
-            logger.warning("获取实体失败 %s: %s", identifier, e)
+        except (ValueError, errors.UsernameNotOccupiedError, errors.UsernameInvalidError) as e:
+            # 用户名/ID 无效，尝试通过对话名称查找
+            logger.debug("直接获取实体失败 %s: %s，尝试对话查找", identifier, e)
+        except errors.RPCError as e:
+            # 其他 RPC 错误，记录警告后尝试备用方案
+            logger.warning("获取实体 RPC 错误 %s: %s", identifier, e)
 
         dialog = await find_dialog(self.client, identifier)
         if dialog is None:

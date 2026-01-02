@@ -3,17 +3,18 @@
 协调各个功能组件
 """
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 from TGmessage import TelegramUnreadMessageAPI
+from TGmessage.config import get_config
 from TGmessage.utils import find_dialog
+from TGmessage.models import DialogInfo
 
 from .favorites import FavoritesManager
 from .message_viewer import MessageViewer
-from .message_sender import MessageSenderWrapper
+from .send_handler import MessageSendHandler
 from .message_operator import MessageOperator
-from ..models import DialogInfo
+from .export_handler import ExportHandler
 from ..ui.formatter import UIFormatter
 
 if TYPE_CHECKING:
@@ -22,19 +23,20 @@ if TYPE_CHECKING:
 
 class FishingApp:
     """摸鱼工具应用主类"""
-    
+
     def __init__(self):
         """初始化应用"""
         self.api: Optional[TelegramUnreadMessageAPI] = None
-        
+
         # 初始化各个组件
-        favorites_path = Path(__file__).resolve().parent.parent.parent / ".tgmessage_favorites.json"
-        self.favorites_manager = FavoritesManager(favorites_path)
+        config = get_config()
+        self.favorites_manager = FavoritesManager(config.favorites_file)
         self.message_viewer = MessageViewer()
-        self.message_sender = MessageSenderWrapper()
+        self.message_send_handler = MessageSendHandler()
         self.message_operator = MessageOperator()
+        self.export_handler = ExportHandler()
         self.formatter = UIFormatter()
-        
+
         # 当前对话
         self.current_dialog: Optional[DialogInfo] = None
     
@@ -233,7 +235,7 @@ class FishingApp:
         """发送消息"""
         async with self._get_api() as api:
             if dialog and text:
-                await self.message_sender.send_with_check(api, dialog, text, dialog_label)
+                await self.message_send_handler.send_with_check(api, dialog, text, dialog_label)
             else:
                 self.formatter.print_send_usage(self.current_dialog is not None)
 
@@ -259,3 +261,61 @@ class FishingApp:
         async with self._get_api() as api:
             await self.message_operator.forward_message(api, self.current_dialog, message_id, to_dialog)
 
+    # ===== 消息导出相关方法 =====
+
+    async def export_messages(
+        self,
+        dialog_identifier=None,
+        output_path: str = None,
+        fmt: str = 'json',
+        limit: int = None,
+        start_date: str = None,
+        end_date: str = None,
+        download_media: bool = False,
+    ):
+        """
+        导出消息
+
+        Args:
+            dialog_identifier: 对话标识符（可选，默认使用当前对话）
+            output_path: 输出路径
+            fmt: 导出格式
+            limit: 最大消息数量
+            start_date: 开始时间字符串
+            end_date: 结束时间字符串
+            download_media: 是否下载媒体
+        """
+        # 确定对话
+        if dialog_identifier is None:
+            if self.current_dialog is None:
+                print("  ❌ 请先使用 'use' 命令进入对话，或指定对话名称")
+                return
+            dialog_identifier = self.current_dialog.dialog_id
+
+        # 解析时间
+        parsed_start = None
+        parsed_end = None
+        if start_date:
+            parsed_start = self.export_handler.parse_date(start_date)
+            if parsed_start is None:
+                print(f"  ❌ 无法解析开始时间: {start_date}")
+                print("  支持格式: YYYY-MM-DD, YYYY-MM-DD HH:MM")
+                return
+        if end_date:
+            parsed_end = self.export_handler.parse_date(end_date)
+            if parsed_end is None:
+                print(f"  ❌ 无法解析结束时间: {end_date}")
+                print("  支持格式: YYYY-MM-DD, YYYY-MM-DD HH:MM")
+                return
+
+        async with self._get_api() as api:
+            await self.export_handler.export_dialog(
+                api=api,
+                dialog_identifier=dialog_identifier,
+                output_path=output_path,
+                fmt=fmt,
+                limit=limit,
+                start_date=parsed_start,
+                end_date=parsed_end,
+                download_media=download_media,
+            )

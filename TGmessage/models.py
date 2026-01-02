@@ -170,3 +170,31 @@ class DialogInfo:
             'last_message_date': self.last_message_date.isoformat() if self.last_message_date else None,
             'last_message_text': self.last_message_text,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'DialogInfo':
+        """从字典创建 DialogInfo 实例"""
+        from datetime import datetime
+        last_message_date = data.get('last_message_date')
+        if last_message_date and isinstance(last_message_date, str):
+            last_message_date = datetime.fromisoformat(last_message_date)
+
+        return cls(
+            dialog_id=data['dialog_id'],
+            name=data['name'],
+            username=data.get('username'),
+            unread_count=data.get('unread_count', 0),
+            unread_mentions_count=data.get('unread_mentions_count', 0),
+            is_user=data.get('is_user', False),
+            is_group=data.get('is_group', False),
+            is_channel=data.get('is_channel', False),
+            is_pinned=data.get('is_pinned', False),
+            is_archived=data.get('is_archived', False),
+            last_message_date=last_message_date,
+            last_message_text=data.get('last_message_text'),
+        )
+
+    def format_info(self) -> str:
+        """格式化对话信息（用于 UI 显示）"""
+        username_part = f" (@{self.username})" if self.username else ""
+        return f"{self.name}{username_part} [ID: {self.dialog_id}]"

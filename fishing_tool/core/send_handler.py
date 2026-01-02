@@ -1,6 +1,8 @@
 """
-消息发送器模块
+消息发送处理器模块
 负责消息发送和遗漏检测
+
+注意：此模块原名为 message_sender.py，为避免与 TGmessage.message_sender 混淆而重命名
 """
 from typing import Optional, TYPE_CHECKING
 
@@ -10,11 +12,11 @@ if TYPE_CHECKING:
     from TGmessage import TelegramUnreadMessageAPI
 
 
-class MessageSenderWrapper:
-    """消息发送器封装"""
+class MessageSendHandler:
+    """消息发送处理器"""
     
     def __init__(self):
-        """初始化消息发送器"""
+        """初始化消息发送处理器"""
         self.formatter = UIFormatter()
     
     async def send_with_check(
@@ -88,4 +90,8 @@ class MessageSenderWrapper:
         
         except Exception as e:
             print(f"\n  ❌ 发送失败: {e}\n")
+
+
+# 向后兼容别名
+MessageSenderWrapper = MessageSendHandler
 

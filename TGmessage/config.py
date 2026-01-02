@@ -3,9 +3,24 @@
 负责从环境变量或配置文件中读取敏感信息,如 API_ID, API_HASH 等
 """
 import os
+import stat
 from pathlib import Path
 from typing import Optional
 from dotenv import load_dotenv
+
+
+def _secure_directory(path: Path) -> None:
+    """
+    确保目录具有安全的权限设置
+
+    在 Unix 系统上设置 700 权限（仅所有者可读写执行）
+    在 Windows 上此操作为空操作（Windows 使用 ACL）
+    """
+    if os.name == 'posix':
+        try:
+            path.chmod(stat.S_IRWXU)  # 700: rwx------
+        except OSError:
+            pass  # 忽略权限设置失败（可能是文件系统限制）
 
 
 class Config:
@@ -34,6 +49,7 @@ class Config:
         self._api_hash = os.getenv('TG_API_HASH')
         self._session_name = os.getenv('TG_SESSION_NAME', 'telegram_session')
         self._session_dir = os.getenv('TG_SESSION_DIR', str(base_dir / 'sessions'))
+        self._favorites_file = os.getenv('TG_FAVORITES_FILE', str(base_dir / '.tgmessage_favorites.json'))
         self._proxy_type = os.getenv('TG_PROXY_TYPE')
         self._proxy_host = os.getenv('TG_PROXY_HOST')
         self._proxy_port = os.getenv('TG_PROXY_PORT')
@@ -41,6 +57,7 @@ class Config:
         self._proxy_password = os.getenv('TG_PROXY_PASSWORD')
         self._proxy_rdns = os.getenv('TG_PROXY_RDNS')
         self._max_unread_fetch = os.getenv('TG_MAX_UNREAD_FETCH', '60')
+        self._base_dir = base_dir
         
         # 验证必需的配置
         self._validate()
@@ -126,12 +143,14 @@ class Config:
     def session_name(self) -> str:
         """会话名称"""
         return self._session_name
-    
+
     @property
     def session_path(self) -> Path:
-        """会话文件完整路径"""
+        """会话文件完整路径（目录具有安全权限）"""
         session_dir = Path(self._session_dir)
         session_dir.mkdir(parents=True, exist_ok=True)
+        # 确保会话目录具有安全权限
+        _secure_directory(session_dir)
         return session_dir / f"{self._session_name}.session"
     
     @property
@@ -161,6 +180,16 @@ class Config:
     @property
     def max_unread_fetch(self) -> int:
         return self._max_unread_fetch
+
+    @property
+    def favorites_file(self) -> Path:
+        """收藏文件路径"""
+        return Path(self._favorites_file)
+
+    @property
+    def base_dir(self) -> Path:
+        """项目基础目录"""
+        return self._base_dir
 
     def __repr__(self) -> str:
         return (

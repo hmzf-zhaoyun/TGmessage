@@ -6,6 +6,7 @@
 *.session-journal
 *.tgmessage_favorites.json
 sessions/
+media/
 
 # Python 缓存
 __pycache__/

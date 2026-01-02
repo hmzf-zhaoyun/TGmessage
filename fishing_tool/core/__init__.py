@@ -4,14 +4,17 @@
 from .app import FishingApp
 from .favorites import FavoritesManager
 from .message_viewer import MessageViewer
-from .message_sender import MessageSenderWrapper
+from .send_handler import MessageSendHandler, MessageSenderWrapper
 from .message_operator import MessageOperator
+from .export_handler import ExportHandler
 
 __all__ = [
     'FishingApp',
     'FavoritesManager',
     'MessageViewer',
-    'MessageSenderWrapper',
-    'MessageOperator'
+    'MessageSendHandler',
+    'MessageSenderWrapper',  # 向后兼容别名
+    'MessageOperator',
+    'ExportHandler',
 ]
 
