@@ -52,6 +52,7 @@ class UnreadMessage:
     is_forwarded: bool = False
     has_media: bool = False
     media_type: Optional[str] = None
+    media_file: Optional[str] = None  # 媒体文件相对路径
 
     # 回复相关信息
     reply_to_msg_id: Optional[int] = None
@@ -62,7 +63,12 @@ class UnreadMessage:
     def __str__(self) -> str:
         """格式化输出消息信息"""
         chat_type = "用户" if self.is_user else "群组" if self.is_group else "频道"
-        media_info = f" [{self.media_type}]" if self.has_media else ""
+        if self.media_file:
+            media_info = f" [{self.media_type}: {self.media_file}]"
+        elif self.has_media:
+            media_info = f" [{self.media_type}]"
+        else:
+            media_info = ""
 
         # 构建基本消息信息
         result = (
@@ -98,6 +104,7 @@ class UnreadMessage:
             'is_forwarded': self.is_forwarded,
             'has_media': self.has_media,
             'media_type': self.media_type,
+            'media_file': self.media_file,
             'reply_to_msg_id': self.reply_to_msg_id,
         }
 

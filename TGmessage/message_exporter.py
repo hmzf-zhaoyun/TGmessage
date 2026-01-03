@@ -70,7 +70,13 @@ class TxtFormatter(BaseFormatter):
 
         for msg in messages:
             time_str = msg.date.strftime('%Y-%m-%d %H:%M:%S')
-            media_info = f" [{msg.media_type}]" if msg.has_media else ""
+            # 媒体信息：优先显示文件路径
+            if msg.media_file:
+                media_info = f" [{self._get_media_type_label(msg.media_type)}: {msg.media_file}]"
+            elif msg.has_media:
+                media_info = f" [{msg.media_type}]"
+            else:
+                media_info = ""
             lines.append(f"[{time_str}] {msg.sender_name}{media_info}")
             if msg.is_reply and msg.reply_info:
                 lines.append(f"  ↩️ 回复: {msg.reply_info.sender_name}: {msg.reply_info.content[:50]}...")
@@ -78,6 +84,18 @@ class TxtFormatter(BaseFormatter):
             lines.append("")
 
         return "\n".join(lines)
+
+    @staticmethod
+    def _get_media_type_label(media_type: str) -> str:
+        """获取媒体类型的中文标签"""
+        labels = {
+            'photo': '图片',
+            'video': '视频',
+            'audio': '音频',
+            'document': '文件',
+            'image': '图片',
+        }
+        return labels.get(media_type, media_type)
 
     def get_extension(self) -> str:
         return ".txt"
@@ -94,7 +112,7 @@ class CsvFormatter(BaseFormatter):
         # 写入表头
         writer.writerow([
             "消息ID", "时间", "发送者", "发送者用户名", "内容",
-            "是否回复", "回复消息ID", "是否转发", "媒体类型"
+            "是否回复", "回复消息ID", "是否转发", "媒体类型", "媒体文件"
         ])
 
         for msg in messages:
@@ -108,6 +126,7 @@ class CsvFormatter(BaseFormatter):
                 msg.reply_to_msg_id or "",
                 "是" if msg.is_forwarded else "否",
                 msg.media_type or "",
+                msg.media_file or "",
             ])
 
         return output.getvalue()
@@ -118,6 +137,9 @@ class CsvFormatter(BaseFormatter):
 
 class MarkdownFormatter(BaseFormatter):
     """Markdown 格式化器"""
+
+    # 可用 Markdown 图片语法展示的媒体类型
+    IMAGE_TYPES = {'photo', 'image'}
 
     def format(self, messages: List[UnreadMessage], dialog_info: DialogInfo) -> str:
         chat_type = "用户" if dialog_info.is_user else "群组" if dialog_info.is_group else "频道"
@@ -141,6 +163,7 @@ class MarkdownFormatter(BaseFormatter):
                 lines.append("")
 
             time_str = msg.date.strftime('%H:%M:%S')
+            # 标题中仍显示媒体类型徽章
             media_badge = f" `{msg.media_type}`" if msg.has_media else ""
 
             lines.append(f"### [{time_str}] {msg.sender_name}{media_badge}")
@@ -151,11 +174,41 @@ class MarkdownFormatter(BaseFormatter):
                 lines.append(f"> ↩️ **{msg.reply_info.sender_name}**: {reply_preview}")
                 lines.append("")
 
+            # 添加消息内容
             content = msg.content.replace('\n', '\n> ') if '\n' in msg.content else msg.content
-            lines.append(content)
-            lines.append("")
+            if content:
+                lines.append(content)
+                lines.append("")
+
+            # 添加媒体引用
+            if msg.media_file:
+                media_ref = self._format_media_reference(msg.media_type, msg.media_file)
+                lines.append(media_ref)
+                lines.append("")
 
         return "\n".join(lines)
+
+    def _format_media_reference(self, media_type: str, media_file: str) -> str:
+        """
+        格式化媒体引用为 Markdown 语法
+
+        Args:
+            media_type: 媒体类型
+            media_file: 媒体文件路径
+
+        Returns:
+            Markdown 格式的媒体引用
+        """
+        if media_type in self.IMAGE_TYPES:
+            return f"![图片]({media_file})"
+        else:
+            type_labels = {
+                'video': '视频',
+                'audio': '音频',
+                'document': '文件',
+            }
+            label = type_labels.get(media_type, media_type)
+            return f"[{label}文件]({media_file})"
 
     def get_extension(self) -> str:
         return ".md"
@@ -344,9 +397,15 @@ class MessageExporter:
         # 确保父目录存在
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # 下载媒体文件
+        # 确定媒体目录
+        media_path = Path(media_dir) if media_dir else output_path.parent / "media"
+
+        # 为所有含媒体的消息生成媒体文件路径（无论是否下载）
+        # 这样导出文件中始终包含媒体引用信息
+        self._populate_media_file_paths(messages, media_path.name)
+
+        # 下载媒体文件（如果需要）
         if download_media:
-            media_path = Path(media_dir) if media_dir else output_path.parent / "media"
             await self._download_media_files(messages, media_path)
 
         # 格式化并写入文件
@@ -355,6 +414,34 @@ class MessageExporter:
 
         logger.info(f"已导出 {len(messages)} 条消息到 {output_path}")
         return output_path
+
+    def _populate_media_file_paths(
+        self,
+        messages: List[UnreadMessage],
+        media_dir_name: str,
+    ) -> None:
+        """
+        为消息填充媒体文件路径
+
+        Args:
+            messages: 消息列表
+            media_dir_name: 媒体目录名称
+        """
+        for msg in messages:
+            if not msg.has_media or msg.raw_message is None:
+                continue
+
+            raw_msg = msg.raw_message
+            if raw_msg.media is None:
+                continue
+
+            # 生成文件名
+            timestamp = msg.date.strftime('%Y%m%d_%H%M%S')
+            ext = self._get_media_extension(raw_msg)
+            filename = f"{msg.message_id}_{timestamp}{ext}"
+
+            # 设置相对路径（相对于导出文件所在目录）
+            msg.media_file = f"{media_dir_name}/{filename}"
 
     async def _download_media_files(
         self,
@@ -375,7 +462,7 @@ class MessageExporter:
         downloaded = 0
 
         for msg in messages:
-            if not msg.has_media or msg.raw_message is None:
+            if not msg.media_file or msg.raw_message is None:
                 continue
 
             raw_msg = msg.raw_message
@@ -383,10 +470,8 @@ class MessageExporter:
                 continue
 
             try:
-                # 生成文件名
-                timestamp = msg.date.strftime('%Y%m%d_%H%M%S')
-                ext = self._get_media_extension(raw_msg)
-                filename = f"{msg.message_id}_{timestamp}{ext}"
+                # 从 media_file 路径提取文件名
+                filename = Path(msg.media_file).name
                 file_path = media_dir / filename
 
                 # 下载媒体
