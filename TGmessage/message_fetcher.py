@@ -131,20 +131,25 @@ class MessageFetcher:
             
             # 确定获取消息的数量
             fetch_limit = min(limit, dialog.unread_count) if limit else dialog.unread_count
-            
+
+            # 获取已读消息的最大 ID (底层 Dialog 对象的属性)
+            # 未读消息的 ID 都大于 read_inbox_max_id
+            read_inbox_max_id = getattr(dialog.dialog, 'read_inbox_max_id', 0) or 0
+
             # 获取未读消息
+            # 使用 reverse=True 从最早的消息开始获取
+            # 使用 min_id=read_inbox_max_id 确保只获取未读消息(ID > read_inbox_max_id)
             unread_messages = []
             async for message in self.client.iter_messages(
                 dialog.entity,
-                limit=fetch_limit
+                limit=fetch_limit,
+                min_id=read_inbox_max_id,
+                reverse=True
             ):
-                # Telethon 没有直接的"未读"标记
-                # 我们获取最近的 N 条消息,其中 N 是未读计数
                 unread_msg = await self._create_unread_message(message, dialog)
                 unread_messages.append(unread_msg)
-            
-            # 反转列表,使消息按时间从旧到新排列
-            unread_messages.reverse()
+
+            # 消息已经按时间从旧到新排列(因为使用了 reverse=True)
 
             # 更新消息追踪状态
             if self.enable_tracking and unread_messages and self.tracker:
