@@ -99,7 +99,13 @@ class InteractiveShell:
                 await self.app.run_dialog_view(" ".join(args))
             else:
                 await self.app.run_dialog_view()
-        
+
+        elif action in ['u', 'unread']:
+            if args:
+                await self.app.get_dialog_unread_count(" ".join(args))
+            else:
+                await self.app.get_dialog_unread_count()
+
         elif action in ['m', 'send']:
             await self._handle_send_command(args)
         
@@ -123,27 +129,43 @@ class InteractiveShell:
             print("  输入 'help' 查看帮助")
     
     async def _handle_send_command(self, args: list):
-        """处理发送命令"""
+        """处理发送命令
+
+        消息解析规则：
+        1. 使用 '--' 分隔符时：分隔符前为对话，后为消息内容
+           例如: send 群组名称 -- 你好 世界
+        2. 已进入对话时：所有参数都作为消息内容
+           例如: (在对话中) send 你好 世界 -> 发送 "你好 世界"
+        3. 未进入对话时：第一个参数为对话，其余为消息内容
+           例如: send @username 你好 世界 -> 发送 "你好 世界" 给 @username
+        """
         dialog = None
         dialog_label = None
         text = None
-        
+
         if args:
             if '--' in args:
+                # 使用 -- 分隔符明确指定对话和消息
                 sep_index = args.index('--')
                 dialog_tokens = args[:sep_index]
                 text_tokens = args[sep_index + 1:]
                 if dialog_tokens and text_tokens:
                     dialog = " ".join(dialog_tokens)
                     text = " ".join(text_tokens)
-            elif len(args) >= 2:
-                dialog = args[0]
-                text = " ".join(args[1:])
-            elif len(args) == 1 and self.app.current_dialog:
+            elif self.app.current_dialog:
+                # 已在对话中，整个输入作为消息内容
                 dialog = self.app.current_dialog.dialog_id
                 dialog_label = self.app.current_dialog.name
-                text = args[0]
-        
+                text = " ".join(args)
+            elif len(args) >= 2:
+                # 不在对话中，第一个参数作为对话，其余作为消息
+                dialog = args[0]
+                text = " ".join(args[1:])
+            elif len(args) == 1:
+                # 只有一个参数且不在对话中，无法确定对话
+                print("  ❌ 请先使用 'use' 命令进入对话，或指定对话: send <对话> <消息>")
+                return
+
         await self.app.send_message(dialog, text, dialog_label)
     
     async def _handle_reply_command(self, args: list):
@@ -298,6 +320,7 @@ class InteractiveShell:
         print("     s, summary      - 查看摘要")
         print("     l, list [数量]  - 查看消息列表 (默认10条，自动显示回复链和消息ID)")
         print("     c, chat [名称]  - 查看特定对话 (进入对话后可省略)")
+        print("     u, unread [名称] - 查看对话未读消息数 (进入对话后可省略)")
 
         print("\n  💬 发送与操作:")
         print("     m, send [对话] <消息> - 发送消息 (进入对话后可省略，m 是快捷缩写)")

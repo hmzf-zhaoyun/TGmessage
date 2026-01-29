@@ -206,6 +206,45 @@ class FishingApp:
 
     # ===== 消息查看相关方法 =====
 
+    async def get_dialog_unread_count(self, dialog_identifier=None, dialog_label: str = None):
+        """
+        获取指定对话的未读消息总数
+
+        Args:
+            dialog_identifier: 对话标识符（对话ID/用户名/名称），可选
+            dialog_label: 用于显示的友好对话名称，可选
+        """
+        async with self._get_api() as api:
+            # 如果未指定对话标识符，尝试使用当前对话
+            if dialog_identifier is None:
+                if self.current_dialog:
+                    dialog_identifier = self.current_dialog.dialog_id
+                    dialog_label = self.current_dialog.name
+                else:
+                    print("  用法: unread <对话名称/用户名/ID>  (或先 use 进入对话)")
+                    return
+
+            # 查找对话
+            dialog = await find_dialog(api.client_wrapper.client, dialog_identifier)
+            if dialog is None:
+                print(f"  ❌ 找不到对话: {dialog_identifier}")
+                return
+
+            # 获取对话信息
+            unread_count = dialog.unread_count
+            display_name = dialog_label or dialog.name
+            username = getattr(dialog.entity, 'username', None)
+            username_part = f" (@{username})" if username else ""
+
+            # 显示格式化的未读消息总数
+            if unread_count == 0:
+                print(f"  ✅ {display_name}{username_part} 没有未读消息")
+            else:
+                # 获取提及数量
+                mentions_count = dialog.unread_mentions_count
+                mentions_info = f"，其中 {mentions_count} 条提及" if mentions_count > 0 else ""
+                print(f"  📬 {display_name}{username_part} 有 {unread_count} 条未读消息{mentions_info}")
+
     async def run_summary_view(self):
         """运行摘要查看"""
         async with self._get_api() as api:
