@@ -8,7 +8,7 @@ __version__ = '1.0.0'
 __author__ = 'Your Name'
 
 from .config import Config, get_config
-from .models import UnreadMessage, DialogInfo
+from .models import UnreadMessage, DialogInfo, FolderInfo
 from .client import TelegramClientWrapper
 from .message_fetcher import MessageFetcher
 from .message_sender import MessageSender
@@ -31,6 +31,7 @@ __all__ = [
     'get_config',
     'UnreadMessage',
     'DialogInfo',
+    'FolderInfo',
     'TelegramClientWrapper',
     'MessageFetcher',
     'MessageSender',

@@ -12,7 +12,7 @@ from .client import TelegramClientWrapper
 from .message_fetcher import MessageFetcher
 from .message_sender import MessageSender
 from .message_exporter import MessageExporter, ExportFormat, _get_formatter
-from .models import UnreadMessage, DialogInfo
+from .models import UnreadMessage, DialogInfo, FolderInfo
 from .config import Config, get_config
 
 
@@ -125,6 +125,37 @@ class TelegramUnreadMessageAPI:
         await self.message_fetcher.mark_dialog_read(
             dialog_identifier=dialog,
             max_message_id=max_message_id
+        )
+
+    # 文件夹/分组相关方法
+
+    async def get_folders(self) -> List[FolderInfo]:
+        """
+        获取所有对话文件夹/分组
+
+        Returns:
+            FolderInfo 列表
+        """
+        return await self.message_fetcher.get_folders()
+
+    async def get_dialogs_by_folder(
+        self,
+        folder_id: int,
+        include_unread_only: bool = False
+    ) -> List[DialogInfo]:
+        """
+        获取指定文件夹中的对话列表
+
+        Args:
+            folder_id: 文件夹ID
+            include_unread_only: 是否只返回有未读消息的对话
+
+        Returns:
+            DialogInfo 列表
+        """
+        return await self.message_fetcher.get_dialogs_by_folder(
+            folder_id=folder_id,
+            include_unread_only=include_unread_only
         )
 
     # 发送消息相关方法

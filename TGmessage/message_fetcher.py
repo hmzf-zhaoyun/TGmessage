@@ -12,7 +12,7 @@ from telethon.tl.types import (
 )
 
 from .client import TelegramClientWrapper
-from .models import UnreadMessage, DialogInfo
+from .models import UnreadMessage, DialogInfo, FolderInfo
 from .utils import handle_flood_wait, get_media_type, find_dialog
 from .message_tracker import MessageTracker
 
@@ -352,3 +352,226 @@ class MessageFetcher:
             reply_info=reply_info,
             raw_message=message,
         )
+
+    @handle_flood_wait
+    async def get_folders(self) -> List[FolderInfo]:
+        """
+        获取所有对话文件夹/分组
+
+        Returns:
+            FolderInfo 列表
+        """
+        if not self.client_wrapper.is_connected:
+            raise RuntimeError("客户端未连接,请先调用 connect()")
+
+        from telethon import functions
+        from telethon.tl.types import DialogFilter, DialogFilterDefault, DialogFilterChatlist
+
+        try:
+            result = await self.client(functions.messages.GetDialogFiltersRequest())
+            folders = []
+
+            for f in result.filters:
+                # 跳过默认文件夹
+                if isinstance(f, DialogFilterDefault):
+                    continue
+
+                if isinstance(f, (DialogFilter, DialogFilterChatlist)):
+                    # 提取 peer ID 列表
+                    def extract_peer_ids(peers):
+                        ids = []
+                        for p in peers:
+                            peer_id = getattr(p, 'user_id', None) or \
+                                      getattr(p, 'chat_id', None) or \
+                                      getattr(p, 'channel_id', None)
+                            if peer_id:
+                                ids.append(peer_id)
+                        return ids
+
+                    # 获取标题文本
+                    title = f.title
+                    if hasattr(title, 'text'):
+                        title = title.text
+
+                    folder_info = FolderInfo(
+                        folder_id=f.id,
+                        title=str(title),
+                        emoticon=getattr(f, 'emoticon', None),
+                        include_contacts=getattr(f, 'contacts', False),
+                        include_non_contacts=getattr(f, 'non_contacts', False),
+                        include_groups=getattr(f, 'groups', False),
+                        include_channels=getattr(f, 'broadcasts', False),
+                        include_bots=getattr(f, 'bots', False),
+                        exclude_muted=getattr(f, 'exclude_muted', False),
+                        exclude_read=getattr(f, 'exclude_read', False),
+                        exclude_archived=getattr(f, 'exclude_archived', False),
+                        pinned_peer_ids=extract_peer_ids(getattr(f, 'pinned_peers', [])),
+                        include_peer_ids=extract_peer_ids(getattr(f, 'include_peers', [])),
+                        exclude_peer_ids=extract_peer_ids(getattr(f, 'exclude_peers', [])),
+                    )
+                    folders.append(folder_info)
+
+            logger.info(f"共找到 {len(folders)} 个文件夹")
+            return folders
+
+        except errors.RPCError as e:
+            logger.error(f"获取文件夹列表失败: {e}")
+            raise
+
+    @handle_flood_wait
+    async def get_dialogs_by_folder(
+        self,
+        folder_id: int,
+        include_unread_only: bool = False
+    ) -> List[DialogInfo]:
+        """
+        获取指定文件夹中的对话列表
+
+        Args:
+            folder_id: 文件夹ID
+            include_unread_only: 是否只返回有未读消息的对话
+
+        Returns:
+            DialogInfo 列表
+        """
+        if not self.client_wrapper.is_connected:
+            raise RuntimeError("客户端未连接,请先调用 connect()")
+
+        # 先获取文件夹信息
+        folders = await self.get_folders()
+        folder = next((f for f in folders if f.folder_id == folder_id), None)
+
+        if folder is None:
+            raise ValueError(f"找不到文件夹: {folder_id}")
+
+        logger.info(f"正在获取文件夹 '{folder.title}' 中的对话...")
+        logger.info(f"文件夹配置: include_peers={len(folder.include_peer_ids)}, pinned={len(folder.pinned_peer_ids)}, exclude={len(folder.exclude_peer_ids)}")
+        logger.info(f"类型过滤: contacts={folder.include_contacts}, non_contacts={folder.include_non_contacts}, groups={folder.include_groups}, channels={folder.include_channels}, bots={folder.include_bots}")
+
+        dialogs = []
+
+        try:
+            async for dialog in self.client.iter_dialogs():
+                # 检查是否匹配文件夹条件
+                if not self._dialog_matches_folder(dialog, folder):
+                    continue
+
+                # 如果只要未读
+                if include_unread_only and dialog.unread_count == 0:
+                    continue
+
+                dialog_info = self._create_dialog_info(dialog)
+                dialogs.append(dialog_info)
+
+            logger.info(f"文件夹 '{folder.title}' 中共有 {len(dialogs)} 个对话")
+            return dialogs
+
+        except errors.RPCError as e:
+            logger.error(f"获取文件夹对话失败: {e}")
+            raise
+
+    def _get_entity_peer_id(self, entity) -> int:
+        """
+        从 entity 中提取 peer_id（与文件夹中存储的格式一致）
+
+        Telegram 文件夹存储的是原始 ID（正数）：
+        - User: user_id
+        - Chat: chat_id
+        - Channel: channel_id
+
+        Args:
+            entity: Telethon entity 对象
+
+        Returns:
+            peer_id（正数）
+        """
+        if isinstance(entity, User):
+            return entity.id
+        elif isinstance(entity, Chat):
+            return entity.id
+        elif isinstance(entity, Channel):
+            return entity.id
+        return 0
+
+    def _dialog_matches_folder(self, dialog, folder: FolderInfo) -> bool:
+        """
+        检查对话是否匹配文件夹条件
+
+        Args:
+            dialog: Telethon Dialog 对象
+            folder: FolderInfo 对象
+
+        Returns:
+            是否匹配
+        """
+        entity = dialog.entity
+
+        # 获取与文件夹格式一致的 peer_id（正数）
+        peer_id = self._get_entity_peer_id(entity)
+
+        logger.debug(f"检查对话: {dialog.name}, peer_id={peer_id}, dialog_id={dialog.id}")
+        logger.debug(f"文件夹 include_peer_ids: {folder.include_peer_ids[:5]}..." if len(folder.include_peer_ids) > 5 else f"文件夹 include_peer_ids: {folder.include_peer_ids}")
+
+        # 检查是否在排除列表中
+        if peer_id in folder.exclude_peer_ids:
+            logger.debug(f"  -> 在排除列表中，跳过")
+            return False
+
+        # 检查是否在包含列表中（包含列表优先）
+        if peer_id in folder.include_peer_ids or peer_id in folder.pinned_peer_ids:
+            logger.debug(f"  -> 在包含列表中，匹配!")
+            return True
+
+        # 如果文件夹有明确的包含列表，且此对话不在列表中，则不匹配
+        # （这是 Telegram 文件夹的核心逻辑：有 include_peers 时只显示这些对话）
+        if folder.include_peer_ids or folder.pinned_peer_ids:
+            # 但还需要检查类型过滤条件
+            pass
+
+        # 检查过滤条件
+        if folder.exclude_archived and dialog.archived:
+            logger.debug(f"  -> 已归档，排除")
+            return False
+
+        if folder.exclude_muted and dialog.dialog.notify_settings:
+            # 检查是否静音
+            ns = dialog.dialog.notify_settings
+            if getattr(ns, 'mute_until', None):
+                logger.debug(f"  -> 已静音，排除")
+                return False
+
+        if folder.exclude_read and dialog.unread_count == 0:
+            logger.debug(f"  -> 已读，排除")
+            return False
+
+        # 检查对话类型
+        if isinstance(entity, User):
+            if entity.bot:
+                result = folder.include_bots
+                logger.debug(f"  -> 机器人，include_bots={folder.include_bots}, 结果={result}")
+                return result
+            elif entity.contact:
+                result = folder.include_contacts
+                logger.debug(f"  -> 联系人，include_contacts={folder.include_contacts}, 结果={result}")
+                return result
+            else:
+                result = folder.include_non_contacts
+                logger.debug(f"  -> 非联系人，include_non_contacts={folder.include_non_contacts}, 结果={result}")
+                return result
+        elif isinstance(entity, Chat):
+            result = folder.include_groups
+            logger.debug(f"  -> 群组(Chat)，include_groups={folder.include_groups}, 结果={result}")
+            return result
+        elif isinstance(entity, Channel):
+            if entity.broadcast:
+                result = folder.include_channels
+                logger.debug(f"  -> 频道，include_channels={folder.include_channels}, 结果={result}")
+                return result
+            else:
+                result = folder.include_groups
+                logger.debug(f"  -> 群组(Channel)，include_groups={folder.include_groups}, 结果={result}")
+                return result
+
+        logger.debug(f"  -> 未知类型，不匹配")
+        return False
+

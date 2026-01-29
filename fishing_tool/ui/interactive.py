@@ -124,6 +124,9 @@ class InteractiveShell:
         elif action in ['x', 'export']:
             await self._handle_export_command(args)
 
+        elif action in ['folders', 'fl']:
+            await self._handle_folders_command(args)
+
         else:
             print(f"  ❌ 未知命令: {action}")
             print("  输入 'help' 查看帮助")
@@ -313,6 +316,17 @@ class InteractiveShell:
             download_media=download_media,
         )
 
+    async def _handle_folders_command(self, args: list):
+        """处理文件夹命令"""
+        if not args:
+            # 显示所有文件夹
+            await self.app.list_folders()
+        else:
+            # 查看指定文件夹中的对话
+            folder_id = args[0]
+            unread_only = '--unread' in args or '-u' in args
+            await self.app.list_folder_dialogs(folder_id, unread_only)
+
     def _show_help(self):
         """显示帮助"""
         print("\n  📖 命令列表:")
@@ -354,6 +368,15 @@ class InteractiveShell:
         print("     unstar <对话|序号> - 取消收藏 (可省略使用当前对话)")
         print("     use <对话|序号>  - 进入对话")
         print("     back            - 退出当前对话")
+
+        print("\n  📂 文件夹/分组:")
+        print("     folders, fl            - 查看所有文件夹")
+        print("     folders <ID> [-u]      - 查看文件夹中的对话")
+        print("        -u, --unread        只显示有未读消息的对话")
+        print("\n     示例:")
+        print("           folders           (列出所有文件夹)")
+        print("           folders 2         (查看ID为2的文件夹中的对话)")
+        print("           folders 2 -u      (只显示有未读的对话)")
 
         print("\n  ℹ️  通用:")
         print("     h, help         - 显示帮助")

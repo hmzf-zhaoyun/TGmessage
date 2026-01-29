@@ -4,7 +4,7 @@
 """
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 
 def to_local_time(dt: datetime) -> datetime:
@@ -232,3 +232,66 @@ class DialogInfo:
         """格式化对话信息（用于 UI 显示）"""
         username_part = f" (@{self.username})" if self.username else ""
         return f"{self.name}{username_part} [ID: {self.dialog_id}]"
+
+
+@dataclass
+class FolderInfo:
+    """对话文件夹/分组信息数据模型"""
+
+    folder_id: int
+    title: str
+    emoticon: Optional[str] = None
+
+    # 文件夹包含的对话类型
+    include_contacts: bool = False
+    include_non_contacts: bool = False
+    include_groups: bool = False
+    include_channels: bool = False
+    include_bots: bool = False
+
+    # 过滤条件
+    exclude_muted: bool = False
+    exclude_read: bool = False
+    exclude_archived: bool = False
+
+    # 包含/排除的特定对话ID列表
+    pinned_peer_ids: List[int] = field(default_factory=list)
+    include_peer_ids: List[int] = field(default_factory=list)
+    exclude_peer_ids: List[int] = field(default_factory=list)
+
+    def __str__(self) -> str:
+        """格式化输出文件夹信息"""
+        emoji = self.emoticon or "📁"
+        types = []
+        if self.include_contacts:
+            types.append("联系人")
+        if self.include_non_contacts:
+            types.append("非联系人")
+        if self.include_groups:
+            types.append("群组")
+        if self.include_channels:
+            types.append("频道")
+        if self.include_bots:
+            types.append("机器人")
+
+        type_info = ", ".join(types) if types else "自定义"
+        return f"{emoji} {self.title} (ID: {self.folder_id}) - {type_info}"
+
+    def to_dict(self) -> dict:
+        """转换为字典格式"""
+        return {
+            'folder_id': self.folder_id,
+            'title': self.title,
+            'emoticon': self.emoticon,
+            'include_contacts': self.include_contacts,
+            'include_non_contacts': self.include_non_contacts,
+            'include_groups': self.include_groups,
+            'include_channels': self.include_channels,
+            'include_bots': self.include_bots,
+            'exclude_muted': self.exclude_muted,
+            'exclude_read': self.exclude_read,
+            'exclude_archived': self.exclude_archived,
+            'pinned_peer_ids': self.pinned_peer_ids,
+            'include_peer_ids': self.include_peer_ids,
+            'exclude_peer_ids': self.exclude_peer_ids,
+        }

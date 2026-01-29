@@ -358,3 +358,134 @@ class FishingApp:
                 end_date=parsed_end,
                 download_media=download_media,
             )
+
+    # ===== 文件夹/分组相关方法 =====
+
+    async def list_folders(self):
+        """列出所有文件夹/分组"""
+        async with self._get_api() as api:
+            try:
+                folders = await api.get_folders()
+
+                if not folders:
+                    print("\n  📂 没有找到任何文件夹/分组")
+                    print("  提示: 请在 Telegram 客户端中创建文件夹")
+                    return
+
+                self.formatter.print_title("📂 文件夹列表")
+
+                for i, folder in enumerate(folders, 1):
+                    emoji = folder.emoticon or "📁"
+
+                    # 构建类型标签
+                    types = []
+                    if folder.include_contacts:
+                        types.append("联系人")
+                    if folder.include_non_contacts:
+                        types.append("非联系人")
+                    if folder.include_groups:
+                        types.append("群组")
+                    if folder.include_channels:
+                        types.append("频道")
+                    if folder.include_bots:
+                        types.append("机器人")
+
+                    type_info = ", ".join(types) if types else "自定义"
+
+                    # 构建过滤条件标签
+                    filters = []
+                    if folder.exclude_muted:
+                        filters.append("排除静音")
+                    if folder.exclude_read:
+                        filters.append("仅未读")
+                    if folder.exclude_archived:
+                        filters.append("排除归档")
+                    filter_info = f" ({', '.join(filters)})" if filters else ""
+
+                    print(f"\n  {i}. {emoji} {folder.title}")
+                    print(f"     ID: {folder.folder_id} | 类型: {type_info}{filter_info}")
+
+                    # 显示包含的特定对话数量
+                    specific_count = len(folder.include_peer_ids) + len(folder.pinned_peer_ids)
+                    if specific_count > 0:
+                        print(f"     包含 {specific_count} 个指定对话")
+
+                print()
+                print("  💡 使用 'folders <ID>' 查看文件夹中的对话")
+                print()
+
+            except Exception as e:
+                print(f"\n  ❌ 获取文件夹列表失败: {e}\n")
+
+    async def list_folder_dialogs(self, folder_id: str, unread_only: bool = False):
+        """
+        列出指定文件夹中的对话
+
+        Args:
+            folder_id: 文件夹ID（字符串形式）
+            unread_only: 是否只显示有未读消息的对话
+        """
+        try:
+            fid = int(folder_id)
+        except ValueError:
+            print(f"  ❌ 无效的文件夹ID: {folder_id}")
+            return
+
+        async with self._get_api() as api:
+            try:
+                # 先获取文件夹信息用于显示标题
+                folders = await api.get_folders()
+                folder = next((f for f in folders if f.folder_id == fid), None)
+
+                if folder is None:
+                    print(f"  ❌ 找不到文件夹: {folder_id}")
+                    print("  使用 'folders' 命令查看所有文件夹")
+                    return
+
+                dialogs = await api.get_dialogs_by_folder(
+                    folder_id=fid,
+                    include_unread_only=unread_only
+                )
+
+                emoji = folder.emoticon or "📁"
+                filter_text = "（仅未读）" if unread_only else ""
+                self.formatter.print_title(f"{emoji} {folder.title} {filter_text}")
+
+                if not dialogs:
+                    if unread_only:
+                        print("\n  ✅ 该文件夹中没有未读消息")
+                    else:
+                        print("\n  📭 该文件夹中没有对话")
+                    print()
+                    return
+
+                # 按未读数排序
+                dialogs.sort(key=lambda d: d.unread_count, reverse=True)
+
+                for i, dialog in enumerate(dialogs, 1):
+                    # 对话类型图标
+                    if dialog.is_user:
+                        type_emoji = "👤"
+                    elif dialog.is_group:
+                        type_emoji = "👥"
+                    else:
+                        type_emoji = "📢"
+
+                    # 未读标记
+                    unread_mark = f" 🔴 {dialog.unread_count}" if dialog.unread_count > 0 else ""
+
+                    # 用户名
+                    username_part = f" (@{dialog.username})" if dialog.username else ""
+
+                    print(f"  {i:3}. {type_emoji} {dialog.name}{username_part}{unread_mark}")
+                    print(f"       ID: {dialog.dialog_id}")
+
+                print()
+                print(f"  共 {len(dialogs)} 个对话")
+                print("  💡 使用 'use <对话名/ID>' 进入对话")
+                print()
+
+            except ValueError as e:
+                print(f"\n  ❌ {e}\n")
+            except Exception as e:
+                print(f"\n  ❌ 获取文件夹对话失败: {e}\n")
