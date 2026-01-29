@@ -7,6 +7,29 @@ from datetime import datetime
 from typing import Optional
 
 
+def to_local_time(dt: datetime) -> datetime:
+    """
+    将 datetime 转换为本地时间
+
+    Args:
+        dt: datetime 对象（可能是 UTC 时间或带时区信息的时间）
+
+    Returns:
+        本地时间的 datetime 对象
+    """
+    if dt is None:
+        return None
+
+    # 如果有时区信息，转换为本地时间
+    if dt.tzinfo is not None:
+        # 转换为本地时间并移除时区信息（用于显示）
+        local_dt = dt.astimezone()
+        return local_dt.replace(tzinfo=None)
+
+    # 如果没有时区信息，假设已经是本地时间
+    return dt
+
+
 @dataclass
 class ReplyInfo:
     """回复消息信息"""
@@ -70,11 +93,15 @@ class UnreadMessage:
         else:
             media_info = ""
 
+        # 将 UTC 时间转换为本地时间
+        local_time = to_local_time(self.date)
+        time_str = local_time.strftime('%Y-%m-%d %H:%M:%S') if local_time else "未知时间"
+
         # 构建基本消息信息
         result = (
             f"[{chat_type}] {self.chat_name}\n"
             f"  发送者: {self.sender_name}\n"
-            f"  时间: {self.date.strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"  时间: {time_str}\n"
         )
 
         # 如果是回复消息，添加被回复的消息信息

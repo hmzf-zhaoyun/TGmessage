@@ -2,7 +2,7 @@
 UI 格式化工具模块
 提供统一的显示格式
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -12,12 +12,35 @@ if TYPE_CHECKING:
 
 class UIFormatter:
     """UI 格式化工具类"""
-    
+
+    @staticmethod
+    def to_local_time(dt: datetime) -> datetime:
+        """
+        将 datetime 转换为本地时间
+
+        Args:
+            dt: datetime 对象（可能是 UTC 时间或带时区信息的时间）
+
+        Returns:
+            本地时间的 datetime 对象
+        """
+        if dt is None:
+            return None
+
+        # 如果有时区信息，转换为本地时间
+        if dt.tzinfo is not None:
+            # 转换为本地时间并移除时区信息（用于显示）
+            local_dt = dt.astimezone()
+            return local_dt.replace(tzinfo=None)
+
+        # 如果没有时区信息，假设已经是本地时间
+        return dt
+
     @staticmethod
     def print_line(char: str = "-", width: int = 70):
         """打印分隔线"""
         print(char * width)
-    
+
     @staticmethod
     def print_title(title: str):
         """打印标题"""
@@ -25,16 +48,18 @@ class UIFormatter:
         print(f"  {title}")
         print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         UIFormatter.print_line("=")
-    
+
     @staticmethod
     def format_dialog_info(dialog: 'DialogInfo') -> str:
         """格式化对话信息"""
         return dialog.format_info()
-    
+
     @staticmethod
     def format_message_header(msg: 'UnreadMessage', time_format: str = "%H:%M") -> str:
         """格式化消息头部"""
-        time_str = msg.date.strftime(time_format)
+        # 将 UTC 时间转换为本地时间
+        local_time = UIFormatter.to_local_time(msg.date)
+        time_str = local_time.strftime(time_format) if local_time else "??:??"
         sender_info = msg.sender_name
         if msg.sender_username:
             sender_info += f" (@{msg.sender_username})"
